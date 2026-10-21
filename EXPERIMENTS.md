@@ -31,3 +31,8 @@ Append-only. Each entry: hypothesis, method, result, decision. No real names or 
 - Method: whisper.cpp b5454 CPU build, ggml-large-v3-turbo-q5_0, 2-minute English clip (03:00-05:00 of average B435), 6 threads, -l en; compared with the Zoom VTT by word alignment.
 - Result: 141 s for 120 s of audio (1.18x real time), peak RAM ~0.9 GB, encoder 92% of runtime. 84% word agreement with the VTT (both are machine transcripts, so this is agreement, not accuracy). Whisper was right on chess terms where the VTT was wrong.
 - Decision: quality is good but turbo is too slow for a 2-vCPU host. Next: benchmark base-q5_1 and small-q5_1 at 2 threads; transcribe only opening/closing/middle windows if needed. Turbo is not trained for translation, so Malayalam needs -l ml (LLM reads it) or a non-turbo model with -tr.
+
+## E4 (22 Oct): Text stats module vs the E2 hand analysis (M3)
+- Method: cqa/features/text_stats.py on all 12 VTTs (scripts/stats_table.py); same-speaker cues < 1.5 s apart are merged into one turn.
+- Result: tutor talk share and tutor "?"/min match E2 within 1 point. Student turns/min is 10-35% lower than E2 because merged cues count once (excellent 7.3 / 9.4, good B552 8.3, average 1.6 / 3.2, weak 2.2 / 5.3, quality issue 3.9 / 2.9); the ordering is unchanged. good B435 is the only class where "?" counts are unreliable: "?" is 5% of its sentence-ending marks (21-43% elsewhere) and it has only ~31 tutor words/min (others 40-70). Longest tutor monologue is highest in weak B558 (447 s; others 30-154 s).
+- Decision: the sparse_punctuation flag now fires on low punctuation density or a "?" share < 10% of sentence ends; the judge is told to ignore "?"/min when it is set. Low words/min is a candidate transcript-quality signal for Phase 2.
