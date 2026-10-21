@@ -97,3 +97,26 @@ def test_no_real_name_survives():
         dump = t.model_dump_json()
         for name in REAL_NAMES:
             assert name not in dump, (fixture, name)
+
+
+def test_scrub_names_for_whisper_text():
+    from cqa.transcript.privacy import scrub_names
+
+    assert scrub_names("Arjun, what is a fork?") == "[NAME], what is a fork?"
+    assert scrub_names("Very good Meera. Now move the Knight.") == "Very good [NAME]. Now move the Knight."
+    assert scrub_names("Today we play. I think so.") == "Today we play. I think so."
+    assert scrub_names("Where is Kavya?") == "Where is [NAME]?"
+
+
+def test_scrub_keeps_chess_sentences_and_pseudonyms():
+    from cqa.transcript.privacy import scrub_names
+
+    chess = (
+        "Now, Knight to f3. Bishop takes the Rook! Castle King side, then Checkmate with the Queen. "
+        "Pawn, Check, and Stalemate are different. Okay, Good, Very nice. Yes, What is En Passant?"
+    )
+    assert scrub_names(chess) == chess
+    assert scrub_names("TUTOR asks S1 and S2 about the Sicilian Defence.") == (
+        "TUTOR asks S1 and S2 about the Sicilian Defence."
+    )
+    assert scrub_names("Well done, Rohan!") == "Well done, [NAME]!"

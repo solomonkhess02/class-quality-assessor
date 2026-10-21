@@ -20,6 +20,13 @@ if (-not (Test-Path $face) -or (Get-Item $face).Length -lt 100000) {
 }
 Write-Host "[ok]      face model ($((Get-Item $face).Length) bytes)"
 
+# Whisper model for the no-VTT path (DECISIONS D11, ~57 MB)
+$wm = "models\ggml-base-q5_1.bin"
+if (-not (Test-Path $wm)) {
+  Invoke-WebRequest "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin" -OutFile $wm
+}
+Write-Host "[ok]      whisper model ($([math]::Round((Get-Item $wm).Length / 1MB)) MB)"
+
 if (-not (Test-Path .env)) { Copy-Item .env.example .env; Write-Host "Created .env from .env.example - add your DeepSeek key" }
 
 # Tool checks (paths from .env)

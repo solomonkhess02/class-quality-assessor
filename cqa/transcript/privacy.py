@@ -108,3 +108,51 @@ def pseudonymise(transcript: Transcript) -> tuple[Transcript, dict[str, str]]:
         for t in transcript.turns
     ]
     return transcript.model_copy(update={"turns": turns}), mapping
+
+
+# Whisper transcripts have no speaker names to pseudonymise from, so names said aloud are scrubbed
+# heuristically: capitalised words mid-sentence, and capitalised words used as a vocative
+# ("Arjun, what is ...?"). Best effort only; Phase 2 should improve this.
+CHESS_TERMS = {
+    "king", "kings", "queen", "queens", "rook", "rooks", "bishop", "bishops", "knight", "knights", "pawn",
+    "pawns", "piece", "pieces", "check", "checks", "checkmate", "mate", "stalemate", "castle", "castling",
+    "draw", "fork", "pin", "skewer", "gambit", "opening", "middlegame", "endgame", "en", "passant",
+    "promotion", "rank", "file", "diagonal", "board", "square", "chess", "lichess", "chesscom", "tactic",
+    "tactics", "puzzle", "puzzles", "sicilian", "french", "italian", "spanish", "english", "ruy", "lopez",
+    "caro", "kann", "london", "scholar", "fool", "defence", "defense", "attack", "variation", "white", "black",
+}  # fmt: skip
+SENTENCE_WORDS = {
+    "i", "i'm", "i'll", "i've", "i'd", "ok", "okay", "oh", "so", "and", "but", "or", "if", "then", "there",
+    "here", "it", "is", "are", "was", "were", "be", "we", "they", "he", "she", "you", "my", "your", "our",
+    "his", "her", "their", "no", "not", "yes", "yeah", "all", "one", "two", "three", "four", "five", "first",
+    "second", "next", "last", "right", "left", "just", "also", "now", "today", "tomorrow", "yesterday",
+    "everyone", "everybody", "anyone", "someone", "what", "why", "how", "when", "where", "who", "which",
+    "this", "that", "these", "those", "can", "could", "would", "should", "will", "do", "did", "does",
+    "have", "has", "had", "let", "let's", "look", "see", "try", "think", "remember", "move", "play", "take",
+    "very", "good", "great", "nice", "well", "excellent", "perfect", "correct", "wrong", "wow", "hello",
+    "hi", "hey", "bye", "please", "thank", "thanks", "sorry", "welcome", "after", "before", "because",
+    "again", "any", "some", "only", "maybe", "sure", "fine", "with", "for", "from", "in", "on", "at", "to",
+    "january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
+    "november", "december", "india", "indian", "google", "youtube", "zoom",
+}  # fmt: skip
+ALLOWED_CAPS = STOPWORDS | CHESS_TERMS | SENTENCE_WORDS
+_PSEUDONYM = re.compile(r"^(?:TUTOR|NAME|S\d+)$")
+_SENTENCE_START = re.compile(r"(?:^|[.?!]\s+)$")
+NAME_TOKEN = "[NAME]"
+
+
+def scrub_names(text: str) -> str:
+    def sub(m: re.Match[str]) -> str:
+        tok = m.group(0)
+        if tok.lower() in ALLOWED_CAPS or _PSEUDONYM.match(tok):
+            return tok
+        at_start = bool(_SENTENCE_START.search(text[: m.start()]))
+        vocative = text[m.end() : m.end() + 1] in {",", "?", "!"}
+        return NAME_TOKEN if (not at_start or vocative) else tok
+
+    return _CAP_TOKEN.sub(sub, text)
+
+
+def scrub_transcript(transcript: Transcript) -> Transcript:
+    turns = [t.model_copy(update={"text": scrub_names(t.text)}) for t in transcript.turns]
+    return transcript.model_copy(update={"turns": turns})
