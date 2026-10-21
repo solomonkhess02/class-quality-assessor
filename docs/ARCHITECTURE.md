@@ -37,13 +37,13 @@ Scale: 1 = absent or poor, 2 = present but weak, 3 = clearly good, 4 = exemplary
 ## Contracts (cqa/schemas.py)
 - Turn: start_s, end_s, speaker, role ("tutor" | "student" | "unknown"), text
 - Transcript: source ("vtt" | "whisper"), language, duration_s, turns
-- TextStats: duration_min, tutor_talk_share, student_turns_per_min, distinct_students_spoke, tutor_questions_per_min, longest_tutor_monologue_s, connectivity_mentions, opening_turns, closing_turns
+- TextStats: duration_min, tutor_talk_share, student_turns_per_min, distinct_students_spoke, tutor_questions_per_min, sparse_punctuation (questions/min unreliable when true), longest_tutor_monologue_s, connectivity_mentions, opening_turns, closing_turns
 - VisualFrameMetrics: t_s, brightness, blur, is_black, is_frozen, face_count
 - VisualReport: n_frames, pct_face, pct_dark, pct_black, pct_frozen, median_blur
 - Evidence: timestamp ("hh:mm:ss"), speaker, quote, verified
-- CriterionResult: id, score (1-4 | null), insufficient_evidence, observations[], evidence[], improvement
-- JudgeOutput: criteria[], summary, strengths[], improvements[]
-- Assessment: label, weighted_score, confidence (0-1), criteria[], strengths[], improvements[], warnings[], meta (model, transcript source, timings)
+- CriterionResult: id, score (1-4 | null; null implies insufficient_evidence), insufficient_evidence, observations[], evidence[], improvement
+- JudgeOutput: criteria[], summary, strengths[], improvements[], transcript_usable, transcript_note (Phase 1 stopgap for unusable ASR, e.g. wrong language)
+- Assessment: label, weighted_score, confidence (0-1), criteria[], summary, strengths[], improvements[], warnings[], text_stats, visual, meta (model, transcript source, timings)
 
 ## Module layout
 ```
