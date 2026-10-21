@@ -36,3 +36,29 @@ Append-only. Each entry: hypothesis, method, result, decision. No real names or 
 - Method: cqa/features/text_stats.py on all 12 VTTs (scripts/stats_table.py); same-speaker cues < 1.5 s apart are merged into one turn.
 - Result: tutor talk share and tutor "?"/min match E2 within 1 point. Student turns/min is 10-35% lower than E2 because merged cues count once (excellent 7.3 / 9.4, good B552 8.3, average 1.6 / 3.2, weak 2.2 / 5.3, quality issue 3.9 / 2.9); the ordering is unchanged. good B435 is the only class where "?" counts are unreliable: "?" is 5% of its sentence-ending marks (21-43% elsewhere) and it has only ~31 tutor words/min (others 40-70). Longest tutor monologue is highest in weak B558 (447 s; others 30-154 s).
 - Decision: the sparse_punctuation flag now fires on low punctuation density or a "?" share < 10% of sentence ends; the judge is told to ignore "?"/min when it is set. Low words/min is a candidate transcript-quality signal for Phase 2.
+
+## E5 (22 Oct): Frame sampling, one decode pass vs per-timestamp seeks (M4)
+- Method: scripts/bench_frames.py on the longest recording (quality issue B441, 89.4 min), 1 frame / 30 s at 640 px, dev laptop. Strategy A: one ffmpeg pass with a select filter (the fps filter rounds to the nearest slot and dropped the last frame in a synthetic test). Strategy B: one fast input seek (-ss before -i) per timestamp.
+- Result: seeks 55.7 s, single pass 94.9 s; both 179 frames.
+- Decision: per-timestamp seeks are the default (media.sample_frames). Re-check on the 2-vCPU Space.
+
+## E6 (22 Oct): Do OpenCV frame metrics separate the classes? (M4)
+- Method: scripts/visual_table.py on all 12 recordings; YuNet face detector on 640 px frames every 30 s. face% = frames with >= 1 face; dark% = mean grey < 60; frozen% = unchanged from the previous sample.
+
+| class | label | face% | multi-face% | dark% | black% | frozen% | median blur |
+|---|---|---|---|---|---|---|---|
+| average B435 | Average | 41 | 1 | 28 | 0 | 26 | 852 |
+| average B516 | Average | 86 | 1 | 58 | 1 | 3 | 864 |
+| excellent B472 | Excellent | 87 | 0 | 17 | 1 | 5 | 1874 |
+| excellent B491 | Excellent | 79 | 1 | 27 | 1 | 9 | 2016 |
+| good B435 | Good | 40 | 0 | 48 | 0 | 32 | 783 |
+| good B552 | Good | 65 | 2 | 6 | 0 | 11 | 1918 |
+| quality issue B392 | Poor | 62 | 3 | 45 | 0 | 20 | 1314 |
+| quality issue B441 | Poor | 4 | 1 | 42 | 0 | 31 | 1355 |
+| weak B482 | Poor | 85 | 0 | 29 | 0 | 12 | 2197 |
+| weak B558 | Poor | 71 | 0 | 17 | 0 | 15 | 604 |
+| demo 1 | - | 79 | 6 | 26 | 0 | 20 | 1636 |
+| demo 2 | - | 98 | 9 | 18 | 0 | 4 | 1437 |
+
+- Result: quality issue B441 stands out (face in 4% of frames). Quality issue B392 does not stand out on face% (62); its dark% (45) is high but average B516 is darker (58), so dark% alone does not separate. Both B435 classes (average and good, same batch) show face ~40% with ~30% frozen frames, which looks like long screen shares of a static board rather than a missing tutor. Multi-face frames are <= 9% everywhere, so gallery view is rare; layout effects come from screen share. Black frames are ~0 everywhere.
+- Decision: the "face missing > 40% -> at most Average" cap would wrongly cap good B435, so it becomes a warning until screen-share frames are tagged and excluded (contact-sheet check by eye, M4 follow-up). Dark threshold and frozen% are not trusted as penalties until then.
