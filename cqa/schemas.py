@@ -61,6 +61,8 @@ class VisualFrameMetrics(BaseModel):
     is_black: bool
     is_frozen: bool
     face_count: int
+    flat_ratio: float = 0.0  # share of 8x8 blocks with ~no texture (screen content)
+    is_screen_share: bool = False
 
 
 class VisualReport(BaseModel):
@@ -70,6 +72,8 @@ class VisualReport(BaseModel):
     pct_black: float
     pct_frozen: float
     median_blur: float
+    pct_screen_share: float = 0.0
+    pct_face_camera: float = 0.0  # face % over frames that are not screen share or black
 
 
 class Evidence(BaseModel):

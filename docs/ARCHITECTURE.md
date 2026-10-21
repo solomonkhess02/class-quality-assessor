@@ -38,8 +38,8 @@ Scale: 1 = absent or poor, 2 = present but weak, 3 = clearly good, 4 = exemplary
 - Turn: start_s, end_s, speaker, role ("tutor" | "student" | "unknown"), text
 - Transcript: source ("vtt" | "whisper"), language, duration_s, turns
 - TextStats: duration_min, tutor_talk_share, student_turns_per_min, distinct_students_spoke, tutor_questions_per_min, sparse_punctuation (questions/min unreliable when true), longest_tutor_monologue_s, connectivity_mentions, opening_turns, closing_turns
-- VisualFrameMetrics: t_s, brightness, blur, is_black, is_frozen, face_count
-- VisualReport: n_frames, pct_face, pct_dark, pct_black, pct_frozen, median_blur
+- VisualFrameMetrics: t_s, brightness, blur, is_black, is_frozen, face_count, flat_ratio, is_screen_share
+- VisualReport: n_frames, pct_face, pct_dark, pct_black, pct_frozen, median_blur, pct_screen_share, pct_face_camera (face % over frames that are neither screen share nor black)
 - Evidence: timestamp ("hh:mm:ss"), speaker, quote, verified
 - CriterionResult: id, score (1-4 | null; null implies insufficient_evidence), insufficient_evidence, observations[], evidence[], improvement
 - JudgeOutput: criteria[], summary, strengths[], improvements[], transcript_usable, transcript_note (Phase 1 stopgap for unusable ASR, e.g. wrong language)

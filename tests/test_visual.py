@@ -51,3 +51,32 @@ def test_detector_finds_no_face_in_noise():
     if not model.is_file():
         pytest.skip("YuNet model not downloaded")
     assert count_faces(img(seed=3), load_face_detector(model)) == 0
+
+
+def board(square: int = 40) -> np.ndarray:
+    """Synthetic flat two-colour chessboard, like a shared screen."""
+    yy, xx = np.mgrid[0:360, 0:640]
+    light = ((yy // square + xx // square) % 2 == 0)[..., None]
+    return np.where(light, np.uint8(220), np.uint8(110)).repeat(3, axis=2).astype(np.uint8)
+
+
+def test_screen_share_tag():
+    share, _ = frame_metrics(board(), None, 0, None)
+    camera, _ = frame_metrics(img(seed=4), None, 0, None)
+    black, _ = frame_metrics(img(0), None, 0, None)
+    assert share.flat_ratio > 0.9 and share.is_screen_share is True
+    assert camera.flat_ratio < 0.1 and camera.is_screen_share is False
+    assert black.is_screen_share is False  # black is "video off", not screen share
+
+
+def test_aggregate_face_over_camera_frames():
+    def m(t, face, share):
+        return VisualFrameMetrics(
+            t_s=t, brightness=120, blur=10, is_black=False, is_frozen=False, face_count=face,
+            flat_ratio=0.9 if share else 0.0, is_screen_share=share,
+        )
+
+    r = aggregate([m(0, 1, False), m(30, 0, True), m(60, 0, True), m(90, 0, False)])
+    assert r.pct_face == 25
+    assert r.pct_screen_share == 50
+    assert r.pct_face_camera == 50  # 1 of the 2 non-share frames
