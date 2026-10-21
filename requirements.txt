@@ -1,0 +1,16 @@
+# core
+streamlit>=1.38
+openai>=1.40
+python-dotenv>=1.0
+pydantic>=2.7
+tenacity>=8.2
+rapidfuzz>=3.6
+# media / vision (local only)
+opencv-python-headless>=4.10,<5  # OpenCV 5 removed CascadeClassifier; we use FaceDetectorYN (YuNet)
+numpy>=1.26
+# data + ingest
+pandas>=2.1
+gdown>=5.1
+# dev
+pytest>=8.0
+ruff>=0.5

@@ -1,0 +1,30 @@
+# secrets
+.env
+# environments
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+# data and derived files (never commit)
+data/
+.cache/
+*.mp4
+*.mkv
+*.mov
+*.wav
+*.mp3
+*.m4a
+*.srt
+*.vtt
+!tests/fixtures/*.vtt
+*.zip
+feedbacks.pdf
+frames/
+logs/raw/
+# downloaded by setup.ps1
+models/*.onnx
+models/*.bin
+# eval: only results.md (IDs and numbers) is committed
+eval/*
+!eval/results.md
