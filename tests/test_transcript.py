@@ -1,0 +1,99 @@
+from pathlib import Path
+
+from cqa.schemas import Transcript, Turn
+from cqa.transcript.privacy import pseudonymise
+from cqa.transcript.roles import assign_roles
+from cqa.transcript.vtt import merge_turns, parse_vtt
+
+FIX = Path(__file__).parent / "fixtures"
+REAL_NAMES = ["Priya", "Raman", "Arjun", "Meera", "Kapoor", "Aarav", "Arav", "iPhone", "iPad"]
+
+
+def load(name: str) -> str:
+    return (FIX / name).read_text(encoding="utf-8")
+
+
+def test_parse_simple():
+    t = parse_vtt(load("simple.vtt"))
+    assert t.source == "vtt"
+    # cues 1 and 2 are the same speaker 0.5 s apart -> merged
+    assert [x.speaker for x in t.turns] == [
+        "Priya Raman",
+        "Arjun's iPhone",
+        "Priya Raman",
+        "Meera Kapoor",
+        "Priya Raman",
+    ]
+    first = t.turns[0]
+    assert (first.start_s, first.end_s) == (1.0, 6.0)
+    assert first.text == "Hello everyone, welcome to class! Arjun, can you hear me?"
+    assert t.duration_s == 79.0
+
+
+def test_crlf_matches_lf():
+    lf = load("simple.vtt")
+    assert parse_vtt(lf.replace("\n", "\r\n")) == parse_vtt(lf)
+    assert parse_vtt("﻿" + lf) == parse_vtt(lf)
+
+
+def test_parse_messy():
+    t = parse_vtt(load("messy.vtt"))
+    # mm:ss.mmm timestamps, cue settings, multi-line cue, missing prefix carries speaker
+    assert t.turns[0].speaker == "Priya Raman"
+    assert t.turns[0].start_s == 1.0
+    assert t.turns[0].end_s == 5.0  # cue 2 (no prefix, 0.5 s gap) merged
+    assert t.turns[0].text == "Good morning Aarav and welcome back! Did you do the homework?"
+    # curly apostrophes normalised
+    assert t.turns[1].speaker == "Aarav's iPad"
+    assert t.turns[1].text == "I did it, it's done"
+
+
+def test_merge_gap_threshold():
+    turns = [
+        Turn(start_s=0, end_s=1, speaker="A", text="a"),
+        Turn(start_s=2.4, end_s=3, speaker="A", text="b"),  # 1.4 s gap -> merge
+        Turn(start_s=4.5, end_s=5, speaker="A", text="c"),  # 1.5 s gap -> keep
+        Turn(start_s=5.1, end_s=6, speaker="B", text="d"),
+    ]
+    merged = merge_turns(turns, gap_s=1.5)
+    assert [(x.speaker, x.text) for x in merged] == [("A", "a b"), ("A", "c"), ("B", "d")]
+
+
+def test_tutor_is_longest_speaker():
+    t = assign_roles(parse_vtt(load("simple.vtt")))
+    roles = {x.speaker: x.role for x in t.turns}
+    assert roles == {"Priya Raman": "tutor", "Arjun's iPhone": "student", "Meera Kapoor": "student"}
+
+
+def test_unknown_speaker_stays_unknown():
+    t = Transcript(
+        source="whisper",
+        turns=[Turn(start_s=0, end_s=10, speaker="UNKNOWN", text="hello")],
+    )
+    assert assign_roles(t).turns[0].role == "unknown"
+
+
+def test_pseudonymise_speakers_and_text():
+    t, mapping = pseudonymise(assign_roles(parse_vtt(load("simple.vtt"))))
+    assert mapping == {"Priya Raman": "TUTOR", "Arjun's iPhone": "S1", "Meera Kapoor": "S2"}
+    assert [x.speaker for x in t.turns] == ["TUTOR", "S1", "TUTOR", "S2", "TUTOR"]
+    assert t.turns[0].text == "Hello everyone, welcome to class! S1, can you hear me?"
+    assert t.turns[2].text == "Great S1. S2, what is a fork?"
+    # chess vocabulary is not mistaken for a name
+    assert "King and the Queen" in t.turns[4].text
+
+
+def test_pseudonymise_fuzzy_and_device_names():
+    t, mapping = pseudonymise(assign_roles(parse_vtt(load("messy.vtt"))))
+    assert mapping["Aarav's iPad"] == "S1"
+    assert t.turns[0].text.startswith("Good morning S1 and")
+    assert "Well done S1!" in t.turns[2].text  # "Arav" fuzzy-matches "Aarav"
+    assert "Rook to e4" in t.turns[2].text
+
+
+def test_no_real_name_survives():
+    for fixture in ("simple.vtt", "messy.vtt"):
+        t, _ = pseudonymise(assign_roles(parse_vtt(load(fixture))))
+        dump = t.model_dump_json()
+        for name in REAL_NAMES:
+            assert name not in dump, (fixture, name)
