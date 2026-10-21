@@ -62,3 +62,48 @@ Append-only. Each entry: hypothesis, method, result, decision. No real names or 
 
 - Result: quality issue B441 stands out (face in 4% of frames). Quality issue B392 does not stand out on face% (62); its dark% (45) is high but average B516 is darker (58), so dark% alone does not separate. Both B435 classes (average and good, same batch) show face ~40% with ~30% frozen frames, which looks like long screen shares of a static board rather than a missing tutor. Multi-face frames are <= 9% everywhere, so gallery view is rare; layout effects come from screen share. Black frames are ~0 everywhere.
 - Decision: the "face missing > 40% -> at most Average" cap would wrongly cap good B435, so it becomes a warning until screen-share frames are tagged and excluded (contact-sheet check by eye, M4 follow-up). Dark threshold and frozen% are not trusted as penalties until then.
+
+## E7 (22 Oct): Can the direct judge tell an excellent class from a weak one? (M6a)
+- Method: direct design (LLM scores each criterion 1-4 with quotes), deepseek-flash, thinking disabled, temperature 0.2, VTT only, no visual metrics. excellent B472 vs weak B482.
+
+| criterion | excellent B472 | weak B482 |
+|---|---|---|
+| opening_rapport | 3 | 2 |
+| individual_engagement | 3 | 3 |
+| communication | 3 | 3 |
+| closure_homework | 3 | 2 |
+| technical_quality | 2 | 2 |
+| weighted mean (LLM criteria) | 2.88 (Good) | 2.47 (Average) |
+
+- Result: the judge ranks the two classes correctly but compresses them into a 0.4 gap; both are one level off. Engagement and warmth, the criteria the organiser stresses most, get identical scores. All 33 quotes verified.
+- Decision: this is a discrimination problem, not only calibration. Test an extract-then-score design before touching thresholds.
+
+## E8 (22 Oct): whisper.cpp model and threads for a 2-vCPU host (M5)
+- Method: scripts/bench_whisper.py, same 2-minute clip as E3 (03:00-05:00 of average B435), -l en, -mc 0, JSON output through cqa/transcript/whisper.py (window offsets applied). Agreement = word-sequence similarity with the Zoom VTT over the same window (both are machine transcripts). Dev laptop, 12 logical cores.
+
+| model | threads | wall s | x real time | agreement % |
+|---|---|---|---|---|
+| large-v3-turbo-q5_0 | 6 | 125.7 | 1.05 | 83 |
+| large-v3-turbo-q5_0 | 2 | 235.3 | 1.96 | 83 |
+| small-q5_1 | 2 | 60.3 | 0.50 | 83 |
+| base-q5_1 | 2 | 19.9 | 0.17 | 82 |
+
+- Result: on this clip base-q5_1 matches turbo's agreement at about 1/12 of the 2-thread cost. A 50-minute class would take ~8.5 min with base and ~25 min with small on this laptop at 2 threads; the Space's vCPUs will likely be slower. Window offsets are correct (first segment at 180.0 s). E3 reproduced (turbo, 6 threads: 1.05x, 83%).
+- Decision: base-q5_1 at 2 threads is the default (DECISIONS D11). One clip only and agreement is not accuracy; chess-term errors are not measured here.
+
+## E9 (22 Oct): Extract-then-score vs direct scoring (M6b)
+- Hypothesis: Likert scores bunch at 3; asking the LLM for observable facts (warm-up length, children greeted by name, children asked individually, praise count, homework, recap, goodbye, disruptions) and mapping them to 1-4 in code with rules taken from the anchor wording separates classes better.
+- Method: both designs on excellent B472 and weak B482, VTT only, no visuals, same model and settings. Fact rules were written from the ARCHITECTURE anchors before looking at results and were not tuned afterwards.
+
+| criterion | B472 direct | B472 facts | B482 direct | B482 facts |
+|---|---|---|---|---|
+| opening_rapport | 3 | 3 | 2 | 2 |
+| individual_engagement | 3 | 3 | 3 | 4 |
+| communication | 3 | 1 | 3 | 1 |
+| closure_homework | 3 | 3 | 2 | 2 |
+| technical_quality | 2 | 3 | 2 | 3 |
+| weighted mean | 2.88 | 2.65 | 2.47 | 2.53 |
+
+- Result: direct separates the two classes by 0.41, facts by 0.12 (and ranks the weak class higher on engagement). LLM-reported counts were implausible: 5 praises and 4 "negative tone" remarks in the excellent class, which drove communication to 1 for both. Yes/no facts did discriminate: homework assigned (yes vs no), children greeted by name before content (2 vs 0). All 60 quotes verified in both designs; generic observations 0-13%, so the single generic re-ask never fired.
+- Organiser feedback (expected_criteria.json) for weak B482 praises individual questioning and faults rapport, new joiners' intro and camera; so direct's engagement 3 and opening 2 are consistent with it. The label error may come from aggregation rather than per-criterion judgement.
+- Decision: keep the direct design (DECISIONS D10). Add the discriminating yes/no facts to the direct judge's output as evidence (M7). Measure criterion-level agreement and compare aggregation rules before changing the judge further.

@@ -28,3 +28,5 @@ models/*.bin
 # eval: only results.md (IDs and numbers) is committed
 eval/*
 !eval/results.md
+# local Claude Code settings
+.claude/settings.local.json

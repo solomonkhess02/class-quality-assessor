@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(& \"D:\\\\tools\\\\whisper.cpp\\\\Release\\\\whisper-cli.exe\" -h 2>&1 | Out-String -Width 200; \"rc=$LASTEXITCODE\")",
+      "WebFetch(domain:api-docs.deepseek.com)",
+      "PowerShell(.venv\\\\Scripts\\\\python scripts\\\\check_env.py)",
+      "PowerShell(.venv\\\\Scripts\\\\python -m pytest -q tests\\\\test_schemas.py 2>&1)"
+    ]
+  }
+}

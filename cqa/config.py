@@ -20,6 +20,8 @@ class Settings(BaseModel):
     judge_temperature: float = 0.2
     judge_max_tokens: int = 8000
     judge_timeout_s: float = 180.0
+    judge_thinking: str = "disabled"  # "enabled" | "disabled" (DECISIONS D9)
+    judge_design: str = "direct"  # "direct" | "facts" (EXPERIMENTS, M6b)
 
     # Binaries (names on PATH by default; full paths on the Windows dev machine)
     ffmpeg_bin: str = "ffmpeg"
