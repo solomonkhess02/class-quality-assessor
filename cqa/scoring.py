@@ -29,6 +29,23 @@ def weighted_score(criteria: list[CriterionResult]) -> float | None:
     return sum(BY_ID[c.id].weight * c.score for c in scored) / total_w
 
 
+MIN_SCORED_FOR_LABEL = 3  # fewer scored criteria -> placeholder label, low confidence
+PROBLEM_MAX_SCORE = 2
+# Problem count -> label, set from the organiser's framing ("how many problems did this class have"),
+# not fitted to the labelled set: 0 Excellent, 1 Good, 2 Average, 3+ Poor.
+PROBLEM_LABELS: list[Label] = ["Excellent", "Good", "Average"]
+
+
+def problem_count_label(criteria: list[CriterionResult]) -> tuple[Label, int]:
+    """Alternative aggregation: every scored criterion at <= 2 is one problem (EXPERIMENTS, M7)."""
+    n = sum(
+        1
+        for c in criteria
+        if c.score is not None and not c.insufficient_evidence and c.id in BY_ID and c.score <= PROBLEM_MAX_SCORE
+    )
+    return (PROBLEM_LABELS[n] if n < len(PROBLEM_LABELS) else "Poor"), n
+
+
 def score_visual(v: VisualReport | None, s: Settings | None = None) -> CriterionResult:
     """Phase 1: OpenCV metrics only. Thresholds live in config and are initial guesses."""
     s = s or get_settings()
@@ -105,18 +122,22 @@ def assess(
     criteria.sort(key=lambda c: order.index(c.id) if c.id in order else len(order))
 
     m = weighted_score(criteria)
-    if m is None:
+    problem_label, problems = problem_count_label(criteria)
+    mean_label = label_for(m) if m is not None else "Average"
+    n_scored = sum(1 for c in criteria if c.score is not None and not c.insufficient_evidence)
+    if n_scored < MIN_SCORED_FOR_LABEL:
         label: Label = "Average"
-        warnings.append("No criterion could be scored; the label is a placeholder.")
+        warnings.append(f"Only {n_scored} criteria could be scored; the label is a placeholder.")
     else:
-        label = label_for(m)
+        label = problem_label if get_settings().aggregation == "problems" else mean_label
 
+    # The ARCHITECTURE cap ("at most Average") is a warning until screen-share frames are reliably
+    # excluded (E6: a Good class shares a board for long stretches and shows a face in only 40% of frames).
     if visual is not None and visual.n_frames and 100 - visual.pct_face > FACE_MISSING_CAP_PCT:
-        if LABELS.index(label) > LABELS.index("Average"):
-            warnings.append(
-                f"Label capped at Average: no face visible in {100 - visual.pct_face:.0f}% of sampled frames."
-            )
-            label = "Average"
+        warnings.append(
+            f"No face visible in {100 - visual.pct_face:.0f}% of sampled frames (camera off, or screen share); "
+            "not applied as a cap until screen-share detection is validated."
+        )
     if not judged.transcript_usable:
         note = f" ({judged.transcript_note})" if judged.transcript_note else ""
         warnings.append(f"The transcript looks unusable{note}; treat this assessment with caution.")
@@ -132,11 +153,15 @@ def assess(
         visual is not None,
     )
     meta["transcript_source"] = transcript_source
+    meta.update(
+        {"mean_label": mean_label, "problem_count_label": problem_label, "problems": problems, "n_scored": n_scored}
+    )
     return Assessment(
         label=label,
         weighted_score=round(m, 2) if m is not None else None,
         confidence=conf,
         criteria=criteria,
+        key_facts=judged.key_facts,
         summary=judged.summary,
         strengths=judged.strengths,
         improvements=judged.improvements,

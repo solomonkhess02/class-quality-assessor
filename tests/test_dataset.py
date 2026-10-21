@@ -35,3 +35,21 @@ def test_demo_paired_by_duration(tmp_path: Path):
         ("demo/1", None, "long.vtt"),
         ("demo/2", None, "short.vtt"),
     ]
+
+
+def test_load_expected_drops_nulls_and_notes(tmp_path: Path):
+    import json
+
+    from cqa.dataset import load_expected
+
+    (tmp_path / "expected_criteria.json").write_text(
+        json.dumps(
+            {
+                "_about": "meta",
+                "good/B1": {"label": "Good", "opening_rapport": "good", "communication": "weak",
+                            "closure_homework": None, "notes": "free text"},
+            }
+        )
+    )  # fmt: skip
+    assert load_expected(tmp_path) == {"good/B1": {"opening_rapport": "good", "communication": "weak"}}
+    assert load_expected(tmp_path / "missing") == {}

@@ -12,11 +12,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from cqa.judge.rubric import LLM_CRITERIA
-from cqa.schemas import CriterionResult, Evidence, JudgeOutput, TextStats, parse_ts
-
-
-class FactEvidence(Evidence):
-    fact: str
+from cqa.schemas import CriterionResult, Evidence, FactEvidence, JudgeOutput, TextStats, parse_ts
 
 
 class CriterionNotes(BaseModel):

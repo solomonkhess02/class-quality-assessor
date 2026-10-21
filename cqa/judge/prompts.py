@@ -29,6 +29,19 @@ EXAMPLE = {
          "observations": ["The transcript ends mid-explanation, so the closing is not visible."],
          "evidence": [], "improvement": ""},
     ],
+    "key_facts": {
+        "homework_assigned": True,
+        "homework_what": "solve 5 fork puzzles on the portal",
+        "new_joiners": "none",
+        "children_greeted_by_name": 2,
+        "recap_present": False,
+        "evidence": [
+            {"fact": "homework_assigned", "timestamp": "00:52:10", "speaker": "TUTOR",
+             "quote": "for homework solve the five fork puzzles"},
+            {"fact": "children_greeted_by_name", "timestamp": "00:00:42", "speaker": "TUTOR",
+             "quote": "S1, how was your exam yesterday?"},
+        ],
+    },
     "summary": "Two or three sentences on the class overall.",
     "strengths": ["Specific strength with a timestamp, e.g. names every child in the warm-up (00:00:42)."],
     "improvements": ["Specific, actionable suggestion, e.g. assign one named homework task in the last 5 minutes."],
@@ -77,9 +90,15 @@ Rules:
    are missing from that transcript).
 8. Do not score visual presence; it is measured from video frames separately. Use the video metrics only
    as context for technical_quality.
+9. Also report "key_facts": homework_assigned (specific work set for after class; say what in homework_what),
+   new_joiners ("invited" if a new child is asked to introduce themselves, "not_invited" if a new child joins
+   and is not, "none" if no new child is apparent), children_greeted_by_name (distinct children greeted or
+   chatted with by name before teaching starts), recap_present (the tutor summarises what was learned near the
+   end). Give one verbatim quote in key_facts.evidence for each true or non-zero fact, with its fact name.
+   A true fact without a verifiable quote is counted as false.
 
 Return a single json object with exactly these keys: "transcript_usable", "transcript_note",
-"criteria" (one entry for each of: {ids}), "summary", "strengths", "improvements".
+"criteria" (one entry for each of: {ids}), "key_facts", "summary", "strengths", "improvements".
 Example of the format (content is illustrative only):
 {json.dumps(EXAMPLE, indent=1)}"""
 

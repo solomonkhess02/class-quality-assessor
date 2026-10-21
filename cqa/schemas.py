@@ -103,8 +103,24 @@ class CriterionResult(BaseModel):
         return self
 
 
+class FactEvidence(Evidence):
+    fact: str
+
+
+class KeyFacts(BaseModel):
+    """Yes/no facts that discriminated between classes in E9. Shown in the report; not scored."""
+
+    homework_assigned: bool = False
+    homework_what: str = ""
+    new_joiners: Literal["invited", "not_invited", "none"] = "none"
+    children_greeted_by_name: int = 0
+    recap_present: bool = False
+    evidence: list[FactEvidence] = Field(default_factory=list)
+
+
 class JudgeOutput(BaseModel):
     criteria: list[CriterionResult]
+    key_facts: KeyFacts | None = None
     summary: str = ""
     strengths: list[str] = Field(default_factory=list)
     improvements: list[str] = Field(default_factory=list)
@@ -117,6 +133,7 @@ class Assessment(BaseModel):
     weighted_score: float | None
     confidence: float = Field(ge=0.0, le=1.0)
     criteria: list[CriterionResult] = Field(default_factory=list)
+    key_facts: KeyFacts | None = None
     summary: str = ""
     strengths: list[str] = Field(default_factory=list)
     improvements: list[str] = Field(default_factory=list)

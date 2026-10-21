@@ -17,7 +17,17 @@ from cqa.judge import facts as F
 from cqa.judge import prompts
 from cqa.judge.llm import call_json
 from cqa.judge.rubric import LLM_CRITERIA
-from cqa.schemas import Evidence, JudgeOutput, TextStats, Transcript, Turn, VisualReport, format_ts, parse_ts
+from cqa.schemas import (
+    Evidence,
+    JudgeOutput,
+    KeyFacts,
+    TextStats,
+    Transcript,
+    Turn,
+    VisualReport,
+    format_ts,
+    parse_ts,
+)
 
 MATCH_MIN = 85
 SHORT_QUOTE_CHARS = 12  # shorter quotes must appear verbatim (after normalisation)
@@ -78,6 +88,24 @@ def verify_evidence(judged: JudgeOutput, transcript: Transcript, window_s: float
     return judged.model_copy(update={"criteria": criteria}), dropped, total
 
 
+def verify_key_facts(kf: KeyFacts, transcript: Transcript, window_s: float) -> tuple[KeyFacts, int, list[str]]:
+    """Verify key-fact quotes; true / non-zero / "invited" facts without a verified quote are reset.
+    Returns (facts, dropped quotes, names of facts that were reset)."""
+    kept, dropped = verify_list(kf.evidence, transcript, window_s)
+    supported = {e.fact for e in kept}
+    updates: dict = {"evidence": kept}
+    if kf.homework_assigned and "homework_assigned" not in supported:
+        updates.update(homework_assigned=False, homework_what="")
+    if kf.recap_present and "recap_present" not in supported:
+        updates["recap_present"] = False
+    if kf.children_greeted_by_name and "children_greeted_by_name" not in supported:
+        updates["children_greeted_by_name"] = 0
+    if kf.new_joiners == "invited" and "new_joiners" not in supported:
+        updates["new_joiners"] = "none"  # unknown whether a new child joined
+    reset = [k for k in updates if k not in ("evidence", "homework_what")]
+    return kf.model_copy(update=updates), dropped, reset
+
+
 def generic_observations(observations: list[str]) -> list[str]:
     """Observations that name no speaker, timestamp, quote or number."""
     return [o for o in observations if not _SPECIFIC.search(o)]
@@ -135,6 +163,13 @@ def _judge_direct(
             c = c.model_copy(update={"insufficient_evidence": True})
         criteria.append(c)
     verified = verified.model_copy(update={"criteria": criteria})
+    if verified.key_facts is not None:
+        kf, kf_dropped, reset = verify_key_facts(verified.key_facts, transcript, s.evidence_window_s)
+        verified = verified.model_copy(update={"key_facts": kf})
+        total += len(raw.key_facts.evidence) if raw.key_facts else 0
+        dropped += kf_dropped
+        if reset:
+            warnings.append(f"Key facts without a verified quote were reset: {', '.join(reset)}")
     meta.update({"design": "direct", "evidence_total": total, "evidence_dropped": dropped})
     return verified, warnings, meta
 

@@ -58,3 +58,29 @@ def test_speaker_corrected_from_transcript():
 def test_short_quote_needs_exact_substring():
     out, dropped, _ = verify_evidence(judge_with(ev("00:00:16", "It was bad")), TRANSCRIPT, 90)
     assert dropped == 1
+
+
+def test_key_facts_without_verified_quote_are_reset():
+    from cqa.judge.judge import verify_key_facts
+    from cqa.schemas import FactEvidence, KeyFacts
+
+    kf = KeyFacts(
+        homework_assigned=True,
+        homework_what="puzzles 1 to 5",
+        new_joiners="invited",
+        children_greeted_by_name=1,
+        recap_present=True,
+        evidence=[
+            FactEvidence(fact="homework_assigned", timestamp="00:06:45", speaker="TUTOR",
+                         quote="For homework, solve puzzles 1 to 5"),
+            FactEvidence(fact="recap_present", timestamp="00:06:50", speaker="TUTOR",
+                         quote="Today we learned about forks and pins"),  # invented
+        ],
+    )  # fmt: skip
+    out, dropped, unsupported = verify_key_facts(kf, TRANSCRIPT, 90)
+    assert dropped == 1
+    assert out.homework_assigned is True and out.homework_what == "puzzles 1 to 5"
+    assert out.recap_present is False
+    assert out.new_joiners == "none"
+    assert out.children_greeted_by_name == 0
+    assert sorted(unsupported) == ["children_greeted_by_name", "new_joiners", "recap_present"]

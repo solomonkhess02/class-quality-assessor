@@ -57,19 +57,19 @@ def test_assess_excellent_and_face_cap():
     assert (a.label, a.weighted_score, a.confidence) == ("Excellent", 4.0, 1.0)
     assert [c.id for c in a.criteria][-2:] == ["visual_presence", "technical_quality"]
 
+    # face missing in > 40% of frames: warning only (E6), the visual score itself drops to 3
     hidden = GOOD_VISUAL.model_copy(update={"pct_face": 50})
     a = assess(j, hidden, None, "vtt")
-    assert a.label == "Average"
-    assert any("capped" in w for w in a.warnings)
+    assert a.label == "Excellent"
+    assert any("No face visible in 50%" in w for w in a.warnings)
 
 
-def test_assess_poor_not_raised_by_cap():
+def test_assess_all_ones_is_poor():
     from cqa.scoring import assess
 
     j = judge({k: 1 for k in ALL_LLM})
     a = assess(j, GOOD_VISUAL.model_copy(update={"pct_face": 10}), None, "vtt")
     assert a.label == "Poor"
-    assert not any("capped" in w for w in a.warnings)
 
 
 def test_assess_unusable_transcript_lowers_confidence():
@@ -94,3 +94,60 @@ def test_confidence_penalties():
     dropped = assess(j, GOOD_VISUAL, None, "vtt", meta={"evidence_total": 10, "evidence_dropped": 5}).confidence
     assert base == 1.0
     assert whisper < base and dropped < base
+
+
+@pytest.mark.parametrize(("n", "label"), [(0, "Excellent"), (1, "Good"), (2, "Average"), (3, "Poor"), (5, "Poor")])
+def test_problem_count_labels(n, label):
+    from cqa.scoring import problem_count_label
+
+    scores = {k: (2 if i < n else 3) for i, k in enumerate(ALL_LLM)}
+    criteria = [crit(k, v) for k, v in scores.items()]
+    assert problem_count_label(criteria) == (label, n)
+
+
+def test_problem_count_ignores_insufficient_and_counts_visual():
+    from cqa.scoring import problem_count_label
+
+    criteria = [crit("opening_rapport", 2), crit("communication", 1, insufficient=True), crit("visual_presence", 1)]
+    assert problem_count_label(criteria) == ("Average", 2)
+
+
+def test_assess_passes_key_facts_and_alt_label():
+    from cqa.schemas import KeyFacts
+    from cqa.scoring import assess
+
+    j = judge({k: 3 for k in ALL_LLM}).model_copy(update={"key_facts": KeyFacts(homework_assigned=True)})
+    a = assess(j, GOOD_VISUAL, None, "vtt")
+    assert a.key_facts.homework_assigned is True
+    assert a.meta["problem_count_label"] == "Excellent" and a.meta["problems"] == 0
+
+
+def test_too_few_scored_criteria_gives_placeholder():
+    from cqa.scoring import assess
+
+    j = judge({"opening_rapport": 3, "communication": None, "closure_homework": None,
+               "individual_engagement": None, "technical_quality": None})  # fmt: skip
+    a = assess(j, None, None, "vtt")  # 1 scored criterion, no visual
+    assert a.label == "Average"
+    assert a.meta["n_scored"] == 1
+    assert any("placeholder" in w for w in a.warnings)
+
+
+def test_aggregation_setting(monkeypatch):
+    from cqa import config
+    from cqa.scoring import assess
+
+    # mean 2.75 -> Average; problems: tech=2 is the only problem -> Good
+    j = judge({"opening_rapport": 3, "individual_engagement": 3, "communication": 3, "closure_homework": 3,
+               "technical_quality": 2})  # fmt: skip
+    bad_visual = GOOD_VISUAL.model_copy(update={"pct_dark": 50, "pct_black": 20})  # visual score 2
+    for agg, expected in [("problems", "Average"), ("mean", "Average")]:
+        monkeypatch.setenv("AGGREGATION", agg)
+        config.get_settings.cache_clear()
+        a = assess(j, bad_visual, None, "vtt")
+        assert a.label == expected, agg
+        assert a.meta["problems"] == 2
+    monkeypatch.setenv("AGGREGATION", "problems")
+    config.get_settings.cache_clear()
+    assert assess(j, GOOD_VISUAL, None, "vtt").label == "Good"
+    config.get_settings.cache_clear()

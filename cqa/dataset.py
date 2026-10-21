@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +28,21 @@ class ClassItem:
     technical_flag: bool  # "quality issue" folder
     video: Path | None
     vtt: Path | None
+
+
+def load_expected(data_dir: Path) -> dict[str, dict[str, str]]:
+    """Organiser expectations per class and criterion ("good" / "weak"), from DATA_DIR/expected_criteria.json.
+    Null criteria and free-text notes are dropped."""
+    path = data_dir / "expected_criteria.json"
+    if not path.exists():
+        return {}
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    out: dict[str, dict[str, str]] = {}
+    for key, entry in raw.items():
+        if key.startswith("_") or not isinstance(entry, dict):
+            continue
+        out[key] = {c: v for c, v in entry.items() if v in ("good", "weak")}
+    return out
 
 
 def _vtt_end(vtt: Path) -> float:

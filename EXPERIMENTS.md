@@ -107,3 +107,32 @@ Append-only. Each entry: hypothesis, method, result, decision. No real names or 
 - Result: direct separates the two classes by 0.41, facts by 0.12 (and ranks the weak class higher on engagement). LLM-reported counts were implausible: 5 praises and 4 "negative tone" remarks in the excellent class, which drove communication to 1 for both. Yes/no facts did discriminate: homework assigned (yes vs no), children greeted by name before content (2 vs 0). All 60 quotes verified in both designs; generic observations 0-13%, so the single generic re-ask never fired.
 - Organiser feedback (expected_criteria.json) for weak B482 praises individual questioning and faults rapport, new joiners' intro and camera; so direct's engagement 3 and opening 2 are consistent with it. The label error may come from aggregation rather than per-criterion judgement.
 - Decision: keep the direct design (DECISIONS D10). Add the discriminating yes/no facts to the direct judge's output as evidence (M7). Measure criterion-level agreement and compare aggregation rules before changing the judge further.
+
+## E10 (22 Oct): Criterion-level agreement and label aggregation on the labelled set (M7)
+- Hypothesis (from E7/E9 and the organiser's per-criterion expectations): the judge is mostly right per criterion and the label error comes from aggregation.
+- Method: scripts/eval_labelled.py, direct judge with key facts, two genuine runs per class (VTT + visual metrics; VTT only, where the judge never sees video numbers). Criterion agreement vs DATA_DIR/expected_criteria.json (35 non-null points; score >= 3 = good, <= 2 = weak). Two aggregation rules on the same criterion scores: (a) weighted mean with the ARCHITECTURE thresholds; (b) problem count = criteria scored <= 2 (opening and visual count fully), 0 Excellent, 1 Good, 2 Average, 3+ Poor, mapping set from the organiser's framing before looking at results. Full tables in eval/results.md.
+
+| criterion | agreement, VTT + visual | agreement, VTT only |
+|---|---|---|
+| opening_rapport | 6/6 | 5/6 |
+| individual_engagement | 6/7 | 7/7 |
+| communication | 0/5 | 0/5 |
+| closure_homework | 6/7 | 6/7 |
+| visual_presence | 6/8 | not scored |
+| technical_quality | 2/2 | 2/2 |
+| all | 26/35 (74%) | 20/27 (74%) |
+
+| rule | exact, VTT + visual | within one | exact, VTT only | within one |
+|---|---|---|---|---|
+| weighted mean | 1/10 | 9/10 | 3/10 | 8/10 |
+| problem count | 4/10 | 8/10 | 5/10 | 7/10 |
+
+- Result:
+  1. Per criterion the judge mostly agrees with the organiser (74%), so the hypothesis holds.
+  2. communication is 0/5: the judge gives "energy and warmth" 3 to 9-10 of 10 classes, and every disagreement is the organiser asking for more energetic/pleasant communication. Energy is mostly in the voice, which a transcript does not carry.
+  3. technical_quality is 2 for nearly every class, including both excellent ones, so it adds a near-constant problem.
+  4. The weighted mean never predicts Poor (0/4 in both modes): LLM scores of 1 are rare, so means compress into 2.15-3.45. The problem count finds 3 of 4 Poor classes in both modes, but is pessimistic (the constant tech problem makes Excellent nearly unreachable).
+  5. Run-to-run noise: the two modes are separate judge calls with slightly different prompts, and some criteria moved by one point (e.g. average B435 engagement 2 vs 3).
+  6. Confidence is 1.00 on 9 wrong labels (uninformative). Visual disagreements are quality issue B392 (missing 8x8 background, not measured in Phase 1) and weak B482 (camera "sometimes" off; face in 85% of frames).
+  7. Bug found and fixed: with 0 scored criteria (unusable Malayalam transcript) the problem rule said Excellent; labels now need >= 3 scored criteria, otherwise a placeholder with a warning.
+- Decision: ship the problem-count rule (DECISIONS D12) on reasoning plus results; thresholds are not fitted. Not done here, because it would be fitting to these 10 classes: dropping communication and technical_quality from the problem count. Phase 2 candidates: audio energy features for communication, a stricter definition for technical problems, confidence from label margin and run-to-run agreement, 8x8 background check.
