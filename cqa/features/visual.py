@@ -110,4 +110,5 @@ def aggregate(metrics: list[VisualFrameMetrics]) -> VisualReport:
         median_blur=round(float(np.median([m.blur for m in metrics])), 1),
         pct_screen_share=pct(sum(m.is_screen_share for m in metrics)),
         pct_face_camera=pct(sum(m.face_count > 0 for m in camera), len(camera)),
+        pct_frozen_camera=pct(sum(m.is_frozen for m in camera), len(camera)),
     )

@@ -50,6 +50,7 @@ class TextStats(BaseModel):
     sparse_punctuation: bool
     longest_tutor_monologue_s: float
     connectivity_mentions: int
+    connectivity_incidents_s: list[float] = Field(default_factory=list)  # start times (D14); not sent to the judge
     opening_turns: int
     closing_turns: int
 
@@ -74,6 +75,7 @@ class VisualReport(BaseModel):
     median_blur: float
     pct_screen_share: float = 0.0
     pct_face_camera: float = 0.0  # face % over frames that are not screen share or black
+    pct_frozen_camera: float = 0.0  # frozen % over the same camera frames (D14); not sent to the judge
 
 
 class Evidence(BaseModel):

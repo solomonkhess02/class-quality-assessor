@@ -19,6 +19,21 @@ CONNECTIVITY_RE = re.compile(
 )
 
 
+INCIDENT_GAP_S = 60.0  # connectivity mentions closer than this belong to one incident
+
+
+def connectivity_incidents(turns: list[Turn]) -> list[float]:
+    """Start times of connectivity incidents: turns matching CONNECTIVITY_RE, merged when < INCIDENT_GAP_S apart."""
+    starts: list[float] = []
+    last_end = float("-inf")
+    for t in turns:
+        if CONNECTIVITY_RE.search(t.text):
+            if t.start_s - last_end >= INCIDENT_GAP_S:
+                starts.append(t.start_s)
+            last_end = t.end_s
+    return starts
+
+
 def window(transcript: Transcript, start_s: float, end_s: float) -> list[Turn]:
     """Turns that start inside [start_s, end_s)."""
     return [t for t in transcript.turns if start_s <= t.start_s < end_s]
@@ -66,6 +81,7 @@ def compute_text_stats(transcript: Transcript, opening_min: float, closing_min: 
         sparse_punctuation=sparse,
         longest_tutor_monologue_s=round(_longest_tutor_run(turns), 1),
         connectivity_mentions=sum(len(CONNECTIVITY_RE.findall(t.text)) for t in turns),
+        connectivity_incidents_s=connectivity_incidents(turns),
         opening_turns=len(window(transcript, 0, opening_min * 60)),
         closing_turns=len(window(transcript, duration_s - closing_min * 60, float("inf"))),
     )

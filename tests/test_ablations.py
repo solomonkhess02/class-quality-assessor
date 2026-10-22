@@ -34,3 +34,78 @@ def test_evidence_first_puts_score_last(env):
     assert json.dumps(ex, sort_keys=True) == json.dumps(prompts.EXAMPLE, sort_keys=True)
     sp = prompts.system_prompt()
     assert sp.index('"observations": [') < sp.index('"score": 3')
+
+
+def _stats(duration_min: float, incidents: list[float]):
+    from cqa.schemas import TextStats
+
+    return TextStats(
+        duration_min=duration_min, tutor_talk_share=0.6, student_turns_per_min=3, distinct_students_spoke=3,
+        tutor_questions_per_min=2, sparse_punctuation=False, longest_tutor_monologue_s=60, connectivity_mentions=0,
+        connectivity_incidents_s=incidents, opening_turns=10, closing_turns=10,
+    )  # fmt: skip
+
+
+def _visual(frozen_camera: float):
+    from cqa.schemas import VisualReport
+
+    return VisualReport(n_frames=100, pct_face=80, pct_dark=10, pct_black=0, pct_frozen=frozen_camera,
+                        median_blur=1000, pct_frozen_camera=frozen_camera)  # fmt: skip
+
+
+def test_connectivity_mentions_close_together_are_one_incident():
+    from cqa.features.text_stats import connectivity_incidents
+    from cqa.schemas import Turn
+
+    turns = [
+        Turn(start_s=10, end_s=12, speaker="A", text="can you hear me?"),
+        Turn(start_s=30, end_s=32, speaker="B", text="you are on mute"),  # 18 s later: same incident
+        Turn(start_s=200, end_s=205, speaker="A", text="my internet is lagging"),  # new incident
+        Turn(start_s=300, end_s=305, speaker="A", text="the knight forks the rook"),
+    ]
+    assert connectivity_incidents(turns) == [10, 200]
+
+
+def test_frozen_share_counts_camera_frames_only():
+    from cqa.features.visual import aggregate
+    from cqa.schemas import VisualFrameMetrics as F
+
+    def f(frozen, share):
+        return F(t_s=0, brightness=120, blur=500, is_black=False, is_frozen=frozen, face_count=1, is_screen_share=share)
+
+    # a frozen shared board does not count; 1 of 2 camera frames is frozen
+    v = aggregate([f(True, True), f(True, True), f(True, False), f(False, False)])
+    assert v.pct_frozen == 75.0 and v.pct_frozen_camera == 50.0
+
+
+def test_code_tech_scorer_thresholds():
+    from cqa.schemas import CriterionResult
+    from cqa.scoring import score_technical
+
+    llm = CriterionResult(id="technical_quality", score=2, observations=["Audio drops twice."])
+    ok = score_technical(_stats(60, [100, 900]), _visual(10), llm)  # 2 per hour, 10% frozen
+    assert ok.score == 3 and ok.improvement == "" and "Judge: Audio drops twice." in ok.observations
+    assert score_technical(_stats(60, [100, 900, 2000]), _visual(10), llm).score == 2  # 3 per hour
+    assert score_technical(_stats(120, [100, 900, 2000]), _visual(10), llm).score == 3  # 1.5 per hour
+    assert score_technical(_stats(60, []), _visual(20), llm).score == 2  # 20% frozen camera frames
+    no_video = score_technical(_stats(60, []), None, None)
+    assert no_video.score == 3 and any("not checked" in o for o in no_video.observations)
+
+
+def test_label_exclude_keeps_criterion_but_not_in_problem_count(env):
+    from cqa.schemas import CriterionResult, JudgeOutput
+    from cqa.scoring import assess
+
+    judged = JudgeOutput(criteria=[
+        CriterionResult(id="opening_rapport", score=3), CriterionResult(id="individual_engagement", score=3),
+        CriterionResult(id="communication", score=2), CriterionResult(id="closure_homework", score=3),
+        CriterionResult(id="technical_quality", score=2),
+    ])  # fmt: skip
+    env(LABEL_EXCLUDE="", TECH_SCORER="llm", AGGREGATION="problems")
+    base = assess(judged, _visual(0), _stats(60, []), "vtt")
+    env(LABEL_EXCLUDE="communication", TECH_SCORER="code", AGGREGATION="problems")
+    a1 = assess(judged, _visual(0), _stats(60, []), "vtt")
+    assert base.meta["problems"] == 2 and base.label == "Average"
+    assert a1.meta["problems"] == 0 and a1.label == "Excellent"  # communication excluded, tech fine by code
+    assert {c.id for c in a1.criteria} == {c.id for c in base.criteria}  # still shown
+    assert next(c for c in a1.criteria if c.id == "technical_quality").score == 3

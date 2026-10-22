@@ -6,7 +6,7 @@ from typing import Any
 
 from cqa.config import Settings, get_settings
 from cqa.judge.rubric import BY_ID
-from cqa.schemas import Assessment, CriterionResult, JudgeOutput, Label, TextStats, VisualReport
+from cqa.schemas import Assessment, CriterionResult, JudgeOutput, Label, TextStats, VisualReport, format_ts
 
 LABELS: list[Label] = ["Poor", "Average", "Good", "Excellent"]
 THRESHOLDS = [(3.4, "Excellent"), (2.8, "Good"), (2.2, "Average")]  # initial guesses (ARCHITECTURE.md)
@@ -85,6 +85,50 @@ def score_visual(v: VisualReport | None, s: Settings | None = None) -> Criterion
     )
 
 
+TECH_INCIDENTS_PER_HOUR = 3.0  # D14, fixed before results
+TECH_FROZEN_CAMERA_PCT = 20.0  # D14
+
+
+def score_technical(
+    stats: TextStats | None, visual: VisualReport | None, llm: CriterionResult | None
+) -> CriterionResult:
+    """D14: a technical problem only on objective evidence, i.e. >= 3 connectivity incidents per hour of class (found
+    in the transcript by code) or >= 20% frozen camera frames. The judge's observations and verified quotes are kept
+    as context; its score is not used."""
+    if stats is None or stats.duration_min <= 0:
+        return CriterionResult(id="technical_quality", observations=["No transcript statistics available."])
+    incidents = stats.connectivity_incidents_s
+    rate = len(incidents) * 60 / stats.duration_min
+    shown = ", ".join(format_ts(t) for t in incidents[:8]) + (" ..." if len(incidents) > 8 else "")
+    obs = [f"{len(incidents)} connectivity incidents found in the transcript ({rate:.1f} per hour)"
+           + (f" at {shown}." if incidents else ".")]  # fmt: skip
+    problems = ["connectivity"] if rate >= TECH_INCIDENTS_PER_HOUR else []
+    if visual is not None and visual.n_frames:
+        obs.append(f"{visual.pct_frozen_camera:.0f}% of camera frames (not screen share) are frozen.")
+        if visual.pct_frozen_camera >= TECH_FROZEN_CAMERA_PCT:
+            problems.append("frozen video")
+    else:
+        obs.append("No video analysed, so frozen video was not checked.")
+    improvement = ""
+    if problems:
+        improvement = (llm.improvement if llm and llm.improvement else "") or (
+            "Check the internet connection and camera before class, and keep a wired or stronger connection ready."
+        )
+    return CriterionResult(
+        id="technical_quality",
+        score=2 if problems else 3,
+        observations=obs + [f"Judge: {o}" for o in (llm.observations if llm else [])],
+        evidence=llm.evidence if llm else [],
+        improvement=improvement,
+    )
+
+
+def label_excluded(s: Settings | None = None) -> set[str]:
+    """D15: criteria shown in the report but left out of the label (LABEL_EXCLUDE)."""
+    s = s or get_settings()
+    return {c.strip() for c in s.label_exclude.split(",") if c.strip()}
+
+
 def confidence(
     criteria: list[CriterionResult],
     evidence_dropped: int,
@@ -115,21 +159,27 @@ def assess(
     warnings: list[str] | None = None,
     meta: dict[str, Any] | None = None,
 ) -> Assessment:
+    s = get_settings()
     meta = dict(meta or {})
     warnings = list(warnings or [])
     criteria = [c for c in judged.criteria if c.id != "visual_presence"] + [score_visual(visual)]
+    if s.tech_scorer == "code":
+        llm_tech = next((c for c in criteria if c.id == "technical_quality"), None)
+        criteria = [c for c in criteria if c.id != "technical_quality"] + [score_technical(stats, visual, llm_tech)]
     order = list(BY_ID)
     criteria.sort(key=lambda c: order.index(c.id) if c.id in order else len(order))
 
-    m = weighted_score(criteria)
-    problem_label, problems = problem_count_label(criteria)
+    excluded = label_excluded(s)
+    counted = [c for c in criteria if c.id not in excluded]
+    m = weighted_score(counted)
+    problem_label, problems = problem_count_label(counted)
     mean_label = label_for(m) if m is not None else "Average"
-    n_scored = sum(1 for c in criteria if c.score is not None and not c.insufficient_evidence)
+    n_scored = sum(1 for c in counted if c.score is not None and not c.insufficient_evidence)
     if n_scored < MIN_SCORED_FOR_LABEL:
         label: Label = "Average"
         warnings.append(f"Only {n_scored} criteria could be scored; the label is a placeholder.")
     else:
-        label = problem_label if get_settings().aggregation == "problems" else mean_label
+        label = problem_label if s.aggregation == "problems" else mean_label
 
     # The ARCHITECTURE cap ("at most Average") is a warning until screen-share frames are reliably
     # excluded (E6: a Good class shares a board for long stretches and shows a face in only 40% of frames).
@@ -154,7 +204,14 @@ def assess(
     )
     meta["transcript_source"] = transcript_source
     meta.update(
-        {"mean_label": mean_label, "problem_count_label": problem_label, "problems": problems, "n_scored": n_scored}
+        {
+            "mean_label": mean_label,
+            "problem_count_label": problem_label,
+            "problems": problems,
+            "n_scored": n_scored,
+            "label_excluded": sorted(excluded),
+            "tech_scorer": s.tech_scorer,
+        }
     )
     return Assessment(
         label=label,

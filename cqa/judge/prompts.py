@@ -49,6 +49,8 @@ EXAMPLE = {
 }  # fmt: skip
 
 
+CODE_ONLY_STATS = {"connectivity_incidents_s"}  # used by code scorers (D14), kept out of the judge input
+CODE_ONLY_VISUAL = {"pct_frozen_camera"}
 EVIDENCE_FIRST_ORDER = ["id", "observations", "evidence", "improvement", "insufficient_evidence", "score"]
 
 
@@ -139,10 +141,10 @@ def user_prompt(
     opening_min: float,
     closing_min: float,
 ) -> str:
-    visual_text = json.dumps(visual.model_dump()) if visual else "not available"
+    visual_text = json.dumps(visual.model_dump(exclude=CODE_ONLY_VISUAL)) if visual else "not available"
     return (
         f"Transcript source: {transcript.source}; class length {stats.duration_min:.0f} min.\n\n"
-        f"Statistics (json): {json.dumps(stats.model_dump())}\n"
+        f"Statistics (json): {json.dumps(stats.model_dump(exclude=CODE_ONLY_STATS))}\n"
         "(tutor_talk_share is a fraction of talk time; student_turns_per_min counts merged student turns.)\n\n"
         f"Video metrics (json, percentages of sampled frames): {visual_text}\n\n"
         f"Transcript:\n{format_transcript(transcript, opening_min, closing_min)}\n\n"
