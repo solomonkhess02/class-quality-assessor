@@ -44,6 +44,8 @@ Measured on the 10 labelled sample classes, with repeated judge runs ([docs/EVAL
 | Same label across repeated runs | 9 / 10 classes |
 | Criterion agreement with organiser notes | 73% balanced (96% of praised points, 50% of criticised points) |
 | Privacy gate (no names sent to the judge) | 0 name matches at >= 85% similarity, 0 known names left; 4 borderline matches awaiting human review |
+| No transcript given (whisper path) vs VTT, same class | 0 / 2 labels the same: Excellent B472 Good -> Average, weak B482 Poor -> Average |
+| Whisper time per class (2 threads, 18 min of audio) | 2-6 min (133-357 s on 4 classes) |
 
 Final configuration, 3 runs on the VTT path, 22 Oct ([eval/scorecard.md](eval/scorecard.md)). Trivial baselines: always "Poor" gets 4/10 exact and 50% pairwise. The label rule was written from the organiser's notes on these same 10 classes, so these numbers are optimistic.
 
@@ -57,7 +59,7 @@ Final configuration, 3 runs on the VTT path, 22 Oct ([eval/scorecard.md](eval/sc
 - Voice energy and tone are not measured, only the words. The 8x8 branded background is not checked yet.
 - The tutor-face check is indicative only. The screen-share tag agrees with hand labels on 74% of frames, so a missing face cannot yet be told apart from a screen share. It counts as a moderate problem, not a critical one.
 - Rapport is measured as a warm-up between the tutor's first greeting and the first lesson content. A tutor who builds rapport by questioning each child at the start, with no separate chat, is marked as having no rapport.
-- Without a speaker-labelled transcript, tutor and children are told apart only roughly, so engagement findings are weaker.
+- Without a speaker-labelled transcript (whisper path) the label is less reliable: on 2 tested classes it moved both towards Average. Speakers are not identified, so the warm-up and individual questioning cannot be measured and the "no rapport" problem can never fire. Only parts of the class are transcribed (first 8 min, last 6 min, two 2-min samples), so anything in between is missed: one class's homework, set 9 minutes before the end, was not seen. Whisper can also misdetect the language of a window (one class's opening was detected as Sinhala). Non-English classes (e.g. Malayalam) are not supported.
 - The report shows no numeric confidence: on the labelled set it was as high on wrong labels as on right ones. Reliability notes take its place.
 
 ## Run locally (Windows)
