@@ -45,6 +45,13 @@ def _norm(s: str) -> str:
     return " ".join(re.sub(r"[^a-z0-9]+", " ", s.lower()).split())
 
 
+def _contains(q: str, text: str) -> float:
+    """How well text contains the quote. partial_ratio aligns the shorter string inside the longer one, so a turn
+    shorter than the quote ("a", "ok") would score 100 against any quote containing it (E26); such a turn is
+    compared as a whole instead."""
+    return fuzz.partial_ratio(q, text) if len(text) >= len(q) else fuzz.ratio(q, text)
+
+
 def _match(quote: str, turns: list[Turn]) -> Turn | None:
     """Best-matching turn for a quote, or None. Also tries pairs of adjacent turns."""
     q = _norm(quote)
@@ -53,15 +60,19 @@ def _match(quote: str, turns: list[Turn]) -> Turn | None:
     texts = [_norm(t.text) for t in turns]
     if len(q) < SHORT_QUOTE_CHARS:
         return next((t for t, txt in zip(turns, texts, strict=True) if q in txt), None)
+    singles = [_contains(q, txt) for txt in texts]
     best, best_score = None, 0.0
     for i, t in enumerate(turns):
-        score = fuzz.partial_ratio(q, texts[i])
+        score, owner = singles[i], t
         if i + 1 < len(turns) and len(q) > len(texts[i]):
             # a quote spanning two turns still matches, but an exact single-turn match wins the tie, so the
-            # timestamp is the quoted line itself, not the short turn before it (A3c content_start)
-            score = max(score, fuzz.partial_ratio(q, f"{texts[i]} {texts[i + 1]}") - 1)
+            # timestamp is the quoted line itself, not the short turn before it (A3c content_start); a pair
+            # match is credited to the turn that holds more of the quote (its speaker and start time, E26)
+            pair = _contains(q, f"{texts[i]} {texts[i + 1]}") - 1
+            if pair > score:
+                score, owner = pair, (t if singles[i] >= singles[i + 1] else turns[i + 1])
         if score > best_score:
-            best, best_score = t, score
+            best, best_score = owner, score
     return best if best_score >= MATCH_MIN else None
 
 

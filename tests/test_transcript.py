@@ -65,6 +65,27 @@ def test_tutor_is_longest_speaker():
     assert roles == {"Priya Raman": "tutor", "Arjun's iPhone": "student", "Meera Kapoor": "student"}
 
 
+def test_tutor_second_account_is_tutor():
+    # synthetic: the tutor joins from a laptop and a phone; the phone account has less talk time than one child
+    t = Transcript(
+        source="vtt",
+        turns=[
+            Turn(start_s=0, end_s=60, speaker="Priya Raman", text="Welcome everyone, today we learn forks."),
+            Turn(start_s=61, end_s=91, speaker="Meera Kapoor", text="Hello ma'am, I solved the puzzles."),
+            Turn(start_s=92, end_s=102, speaker="Priya Raman's iPhone", text="This will be your homework."),
+            Turn(start_s=103, end_s=105, speaker="Arjun", text="Okay."),
+        ],
+    )
+    roles = {x.speaker: x.role for x in assign_roles(t).turns}
+    assert roles == {"Priya Raman": "tutor", "Meera Kapoor": "student", "Priya Raman's iPhone": "tutor",
+                     "Arjun": "student"}  # fmt: skip
+    anon, mapping = pseudonymise(assign_roles(t))
+    assert mapping["Priya Raman's iPhone"] == "TUTOR" and anon.turns[2].speaker == "TUTOR"
+    # a different person with a similar-looking name is not merged
+    t2 = t.model_copy(update={"turns": [*t.turns[:2], t.turns[2].model_copy(update={"speaker": "Priyanka Rao"})]})
+    assert {x.speaker: x.role for x in assign_roles(t2).turns}["Priyanka Rao"] == "student"
+
+
 def test_unknown_speaker_stays_unknown():
     t = Transcript(
         source="whisper",

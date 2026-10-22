@@ -55,6 +55,55 @@ def test_speaker_corrected_from_transcript():
     assert out.criteria[0].evidence[0].speaker == "S1"
 
 
+def test_quote_after_a_short_student_turn_keeps_the_tutor():
+    # E26 (live test on B552): partial_ratio aligns the shorter string, so a one-letter student turn ("I.") scored
+    # 100 against any quote containing that letter and, coming first, won the tie with the real tutor line
+    transcript = Transcript(
+        source="vtt",
+        duration_s=600,
+        turns=[
+            Turn(start_s=100, end_s=101, speaker="S2", role="student", text="I."),
+            Turn(
+                start_s=102,
+                end_s=110,
+                speaker="TUTOR",
+                role="tutor",
+                text="This will be your homework, solve the five puzzles before Friday.",
+            ),  # fmt: skip
+            Turn(start_s=111, end_s=112, speaker="S4", role="student", text="E?"),
+            Turn(start_s=113, end_s=118, speaker="TUTOR", role="tutor", text="Next one, I need [NAME] to answer."),
+        ],
+    )
+    out, dropped, _ = verify_evidence(
+        judge_with(
+            ev("00:01:42", "This will be your homework, solve five puzzles before Friday"),  # small drift
+            ev("00:01:53", "next one I need NAME to answer it"),
+        ),
+        transcript,
+        90,
+    )
+    assert dropped == 0
+    assert [(e.speaker, e.timestamp) for e in out.criteria[0].evidence] == [
+        ("TUTOR", "00:01:42"),
+        ("TUTOR", "00:01:53"),
+    ]
+
+
+def test_quote_spanning_two_turns_goes_to_the_turn_holding_most_of_it():
+    transcript = Transcript(
+        source="vtt",
+        duration_s=600,
+        turns=[
+            Turn(start_s=200, end_s=202, speaker="S1", role="student", text="I did it."),
+            Turn(start_s=203, end_s=210, speaker="TUTOR", role="tutor", text="Great, now the second puzzle is a fork."),
+        ],
+    )
+    out, dropped, _ = verify_evidence(
+        judge_with(ev("00:03:20", "I did it. Great, now the second puzzle is a fork")), transcript, 90
+    )
+    assert dropped == 0 and out.criteria[0].evidence[0].speaker == "TUTOR"
+
+
 def test_short_quote_needs_exact_substring():
     out, dropped, _ = verify_evidence(judge_with(ev("00:00:16", "It was bad")), TRANSCRIPT, 90)
     assert dropped == 1
