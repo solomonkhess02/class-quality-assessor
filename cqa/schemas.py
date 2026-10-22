@@ -39,6 +39,7 @@ class Transcript(BaseModel):
     language: str = "unknown"
     duration_s: float = 0.0
     turns: list[Turn] = Field(default_factory=list)
+    windows: list[tuple[float, float]] = Field(default_factory=list)  # transcribed [start, end] windows; [] = all
 
 
 class TextStats(BaseModel):

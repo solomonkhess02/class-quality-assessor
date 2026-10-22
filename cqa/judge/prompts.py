@@ -164,6 +164,17 @@ def format_transcript(transcript: Transcript, opening_min: float, closing_min: f
     return "\n".join(lines)
 
 
+def windows_note(transcript: Transcript) -> str:
+    """No-VTT path: tell the judge which parts were transcribed, so gaps are not read as silence."""
+    if not transcript.windows:
+        return ""
+    parts = ", ".join(f"{format_ts(a)}-{format_ts(b)}" for a, b in transcript.windows)
+    return (
+        f"Only these parts of the class were transcribed: {parts}. Gaps between them are not silence; do not "
+        "judge what happened in them.\n\n"
+    )
+
+
 def user_prompt(
     transcript: Transcript,
     stats: TextStats,
@@ -177,7 +188,7 @@ def user_prompt(
         f"Statistics (json): {json.dumps(stats.model_dump(exclude=CODE_ONLY_STATS))}\n"
         "(tutor_talk_share is a fraction of talk time; student_turns_per_min counts merged student turns.)\n\n"
         f"Video metrics (json, percentages of sampled frames): {visual_text}\n\n"
-        f"Transcript:\n{format_transcript(transcript, opening_min, closing_min)}\n\n"
+        f"{windows_note(transcript)}Transcript:\n{format_transcript(transcript, opening_min, closing_min)}\n\n"
         "Assess this class and return the json object."
     )
 

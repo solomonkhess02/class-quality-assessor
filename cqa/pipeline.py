@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from dataclasses import asdict
 from pathlib import Path
 
 from cqa import media
@@ -15,9 +16,10 @@ from cqa.judge.judge import judge
 from cqa.schemas import Assessment, JudgeOutput, Transcript, VisualReport
 from cqa.scoring import assess
 from cqa.transcript.privacy import anonymise
+from cqa.transcript.quality import check_quality
 from cqa.transcript.roles import assign_roles
 from cqa.transcript.vtt import parse_vtt
-from cqa.transcript.whisper import transcribe_media
+from cqa.transcript.whisper import configured_windows, transcribe_media
 
 Progress = Callable[[str, str], None]
 
@@ -26,18 +28,24 @@ def _noop(stage: str, message: str) -> None:
     pass
 
 
+def whisper_transcript(video: Path, cdir: Path) -> Transcript:
+    """whisper.cpp transcript of the configured windows (or the whole file), cached in the class's cache dir."""
+    windows = configured_windows(media.probe_duration(video))
+    cached = cdir / ("whisper_windows.json" if windows else "whisper.json")
+    if cached.exists():
+        return Transcript.model_validate_json(cached.read_text(encoding="utf-8"))
+    t = transcribe_media(video, cdir / "audio", windows)
+    cached.write_text(t.model_dump_json(), encoding="utf-8")
+    return t
+
+
 def load_transcript(video: Path | None, vtt: Path | None, cdir: Path) -> Transcript:
     """Raw transcript (real names; stays in process memory or the local cache)."""
     if vtt is not None:
         return parse_vtt(vtt.read_text(encoding="utf-8"))
     if video is None:
         raise ValueError("Need a recording or a VTT transcript")
-    cached = cdir / "whisper.json"
-    if cached.exists():
-        return Transcript.model_validate_json(cached.read_text(encoding="utf-8"))
-    t = transcribe_media(video, cdir / "audio")
-    cached.write_text(t.model_dump_json(), encoding="utf-8")
-    return t
+    return whisper_transcript(video, cdir)
 
 
 def run(
@@ -76,6 +84,19 @@ def run(
     else:
         progress("transcript", "Transcribing audio with whisper.cpp (slow on CPU)")
     raw = assign_roles(load_transcript(video, vtt, cdir))
+    pre_warnings: list[str] = []
+    quality = check_quality(raw)
+    if not quality.usable and raw.source == "vtt":
+        why = "; ".join(quality.reasons)
+        if video is not None:
+            progress("transcript", "The Zoom transcript looks unusable; transcribing the audio with whisper.cpp")
+            pre_warnings.append(f"The Zoom transcript looks unusable ({why}); the audio was transcribed instead.")
+            raw = assign_roles(whisper_transcript(video, cdir))
+            quality = check_quality(raw)
+        else:
+            pre_warnings.append(
+                f"The Zoom transcript looks unusable ({why}) and there is no recording to fall back on."
+            )
     transcript, _mapping = anonymise(raw)
     if not transcript.duration_s and video is not None:
         transcript = transcript.model_copy(update={"duration_s": media.probe_duration(video)})
@@ -90,8 +111,13 @@ def run(
     lap("judge")
 
     progress("score", "Scoring")
+    warnings = pre_warnings + warnings
     if raw.source == "whisper":
-        warnings.append("No VTT given: transcribed with whisper; speakers are not identified (Phase 1).")
+        part = "selected windows" if raw.windows else "the whole recording"
+        warnings.append(f"Transcribed with whisper ({part}, language {raw.language}); speakers are not identified.")
+    if not quality.usable:
+        warnings.append(f"Transcript quality is low: {'; '.join(quality.reasons)}.")
+    meta["transcript_quality"] = asdict(quality)
     assessment = assess(judged, visual, stats, transcript.source, warnings, meta)
     assessment.meta["timings_s"] = timings
     (cdir / (f"assessment_r{run_index}.json" if run_index else "assessment.json")).write_text(

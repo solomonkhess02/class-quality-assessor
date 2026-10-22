@@ -57,16 +57,52 @@ def transcribe(
     return parse_whisper_json(data, offset_s)
 
 
+def asr_windows(
+    duration_s: float, opening_min: float, closing_min: float, middle_n: int, middle_min: float
+) -> list[tuple[float, float]]:
+    """[start, end] windows: the opening, the closing and middle_n evenly spaced middle samples, merged where they
+    overlap (a short recording becomes one window)."""
+    opening_end = min(opening_min * 60, duration_s)
+    closing_start = max(duration_s - closing_min * 60, 0.0)
+    windows = [(0.0, opening_end)]
+    gap = closing_start - opening_end
+    half = middle_min * 30
+    for k in range(1, middle_n + 1):
+        centre = opening_end + gap * k / (middle_n + 1)
+        windows.append((max(centre - half, 0.0), min(centre + half, duration_s)))
+    windows.append((closing_start, duration_s))
+    merged: list[tuple[float, float]] = []
+    for start, end in sorted(w for w in windows if w[1] > w[0]):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return [(round(a, 3), round(b, 3)) for a, b in merged]
+
+
+def configured_windows(duration_s: float) -> list[tuple[float, float]] | None:
+    """Windows from the settings, or None for full transcription (ASR_MODE=full)."""
+    s = get_settings()
+    if s.asr_mode == "full":
+        return None
+    return asr_windows(duration_s, s.asr_opening_min, s.asr_closing_min, s.asr_middle_windows, s.asr_middle_min)
+
+
 def transcribe_media(
-    src: Path, work_dir: Path, windows: list[tuple[float, float]] | None = None
+    src: Path,
+    work_dir: Path,
+    windows: list[tuple[float, float]] | None = None,
+    model: Path | None = None,
+    threads: int | None = None,
+    language: str | None = None,
 ) -> Transcript:
     """Transcribe a whole recording, or only the given [start, end] windows, with correct offsets."""
     turns: list[Turn] = []
     languages: list[str] = []
     for wav, offset in media.extract_wav(src, work_dir, windows):
-        t, lang = transcribe(wav, offset)
+        t, lang = transcribe(wav, offset, language=language, model=model, threads=threads)
         turns.extend(t)
         languages.append(lang)
     duration = media.probe_duration(src)
-    language = max(set(languages), key=languages.count) if languages else "unknown"
-    return Transcript(source="whisper", language=language, duration_s=duration, turns=turns)
+    detected = max(set(languages), key=languages.count) if languages else "unknown"
+    return Transcript(source="whisper", language=detected, duration_s=duration, turns=turns, windows=windows or [])

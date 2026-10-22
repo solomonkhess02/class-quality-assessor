@@ -37,6 +37,12 @@ class Settings(BaseModel):
     whisper_model: Path = Path("models/ggml-base.bin")
     whisper_threads: int = 2
     whisper_language: str = "auto"
+    # No-VTT path (P2.2): transcribe only these windows (opening, closing, evenly spaced middle samples)
+    asr_mode: str = "windows"  # "windows" | "full"
+    asr_opening_min: float = 12.0
+    asr_closing_min: float = 10.0
+    asr_middle_windows: int = 3
+    asr_middle_min: float = 3.0
 
     # Data and cache
     data_dir: Path = Path("data")
