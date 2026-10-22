@@ -40,10 +40,12 @@ class Settings(BaseModel):
     whisper_language: str = "auto"
     # No-VTT path (P2.2): transcribe only these windows (opening, closing, evenly spaced middle samples)
     asr_mode: str = "windows"  # "windows" | "full"
-    asr_opening_min: float = 12.0
-    asr_closing_min: float = 10.0
-    asr_middle_windows: int = 3
-    asr_middle_min: float = 3.0
+    asr_opening_min: float = 8.0  # E22: 8 + 6 + 2 x 2 min (18 min of audio), was 12 + 10 + 3 x 3
+    asr_closing_min: float = 6.0
+    asr_middle_windows: int = 2
+    asr_middle_min: float = 2.0
+    asr_detect_language_once: bool = False  # language auto: detect on the opening window, reuse for the rest
+    asr_chess_prompt: bool = False  # whisper initial prompt with chess vocabulary (cqa/transcript/whisper.py)
     whisper_role_tagging: bool = False  # LLM tags TUTOR / STUDENT per whisper segment; on once validated (P2.2)
 
     # Data and cache

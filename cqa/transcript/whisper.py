@@ -12,6 +12,11 @@ from cqa.config import get_settings
 from cqa.schemas import Transcript, Turn
 
 UNKNOWN = "UNKNOWN"
+# Initial prompt (ASR_CHESS_PROMPT): biases decoding towards the class vocabulary; local only, never sent out
+CHESS_PROMPT = (
+    "Online chess class for children. Pawn, knight, bishop, rook, queen, king, check, checkmate, stalemate, "
+    "castling, en passant, fork, pin, skewer, opening, middlegame, endgame, puzzle, homework."
+)
 
 
 def parse_whisper_json(data: dict, offset_s: float = 0.0) -> tuple[list[Turn], str]:
@@ -46,12 +51,13 @@ def transcribe(
     language: str | None = None,
     model: Path | None = None,
     threads: int | None = None,
+    prompt: str = "",
 ) -> tuple[list[Turn], str]:
     s = get_settings()
     if s.whisper_backend == "py":  # pywhispercpp bindings, no compiled CLI (cqa/transcript/whisper_py.py)
         from cqa.transcript import whisper_py
 
-        return whisper_py.transcribe(wav, offset_s, language=language, model=model, threads=threads)
+        return whisper_py.transcribe(wav, offset_s, language=language, model=model, threads=threads, prompt=prompt)
     with tempfile.TemporaryDirectory() as tmp:
         out_base = Path(tmp) / "out"
         cmd = [
@@ -59,6 +65,8 @@ def transcribe(
             "-l", language or s.whisper_language, "-mc", "0", "-oj", "-np",
             "-of", str(out_base), "-f", str(wav),
         ]  # fmt: skip
+        if prompt:
+            cmd += ["--prompt", prompt]
         # whisper prints transcribed text to stderr; decode it as UTF-8, not the Windows code page
         r = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:
@@ -107,12 +115,30 @@ def transcribe_media(
     language: str | None = None,
 ) -> Transcript:
     """Transcribe a whole recording, or only the given [start, end] windows, with correct offsets."""
+    wavs = media.extract_wav(src, work_dir, windows)
+    turns, detected = transcribe_wavs(wavs, language=language, model=model, threads=threads)
+    duration = media.probe_duration(src)
+    return Transcript(source="whisper", language=detected, duration_s=duration, turns=turns, windows=windows or [])
+
+
+def transcribe_wavs(
+    wavs: list[tuple[Path, float]],
+    language: str | None = None,
+    model: Path | None = None,
+    threads: int | None = None,
+) -> tuple[list[Turn], str]:
+    """Transcribe (wav, offset) pairs in order. With ASR_DETECT_LANGUAGE_ONCE and language auto, the language
+    detected on the first window (the opening) is used for the rest, so one class is not split across languages."""
+    s = get_settings()
+    language = language or s.whisper_language
+    prompt = CHESS_PROMPT if s.asr_chess_prompt else ""
     turns: list[Turn] = []
     languages: list[str] = []
-    for wav, offset in media.extract_wav(src, work_dir, windows):
-        t, lang = transcribe(wav, offset, language=language, model=model, threads=threads)
+    for wav, offset in wavs:
+        t, lang = transcribe(wav, offset, language=language, model=model, threads=threads, prompt=prompt)
         turns.extend(t)
         languages.append(lang)
-    duration = media.probe_duration(src)
+        if s.asr_detect_language_once and language == "auto" and lang not in ("", "unknown"):
+            language = lang
     detected = max(set(languages), key=languages.count) if languages else "unknown"
-    return Transcript(source="whisper", language=detected, duration_s=duration, turns=turns, windows=windows or [])
+    return turns, detected

@@ -38,13 +38,17 @@ def transcribe(
     language: str | None = None,
     model: Path | None = None,
     threads: int | None = None,
+    prompt: str = "",
 ) -> tuple[list[Turn], str]:
-    """Like whisper-cli -l <language> -t <threads> -mc 0: Turns (speaker UNKNOWN) and the detected language."""
+    """Like whisper-cli -l <language> -t <threads> -mc 0 [--prompt]: Turns (speaker UNKNOWN) and the detected
+    language."""
     import _pywhispercpp as pw
 
     s = get_settings()
     m = _model(str(model or s.whisper_model), threads or s.whisper_threads)
-    segments = m.transcribe(read_wav(wav), language=language or s.whisper_language, n_max_text_ctx=0)
+    segments = m.transcribe(
+        read_wav(wav), language=language or s.whisper_language, n_max_text_ctx=0, initial_prompt=prompt
+    )
     turns = [
         Turn(
             start_s=round(offset_s + seg.t0 / 100, 3),  # pywhispercpp times are in 10 ms units
