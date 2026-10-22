@@ -1,7 +1,7 @@
 """Contact sheet for checking the screen-share tag by eye. Local only: the image stays in .cache/.
 
-  python scripts/contact_sheet.py           build .cache/contact_sheet/sheet.jpg and labels.csv
-  python scripts/contact_sheet.py --score   after filling the your_label column (share / camera), print agreement
+python scripts/contact_sheet.py           build .cache/contact_sheet/sheet.jpg and labels.csv
+python scripts/contact_sheet.py --score   after filling the your_label column (share / camera), print agreement
 """
 
 from __future__ import annotations
@@ -73,21 +73,44 @@ def build(seed: int = 7) -> None:
     print(f"Labels: {(d / 'labels.csv').resolve()}  (fill your_label with share / camera, then --score)")
 
 
+LABELS = ["share", "both", "camera", "camera_off", "other"]  # both = screen share plus a tutor camera thumbnail
+TUTOR_VISIBLE = {"both", "camera"}  # frames where the tutor's face should be findable, i.e. the tag should say camera
+
+
 def score() -> None:
+    """Confusion table of the screen-share tag against hand labels, agreement (both = tutor visible), and the YuNet
+    face detection rate per hand label. Counts only."""
     with (out_dir() / "labels.csv").open(encoding="utf-8") as f:
         rows = [r for r in csv.DictReader(f) if r["your_label"].strip()]
     if not rows:
         print("No labels filled in yet.")
         return
-    agree = sum(r["pred"] == r["your_label"].strip().lower() for r in rows)
-    print(f"Agreement: {agree}/{len(rows)}")
+    for r in rows:
+        r["your_label"] = r["your_label"].strip().lower()
+    print("| tag \\ your label | " + " | ".join(LABELS) + " |")
+    print("|---|" + "---|" * len(LABELS))
     for pred in ("share", "camera"):
-        for truth in ("share", "camera"):
-            n = sum(r["pred"] == pred and r["your_label"].strip().lower() == truth for r in rows)
-            print(f"  pred={pred:<7} you={truth:<7} {n}")
-    other = [r for r in rows if r["your_label"].strip().lower() not in ("share", "camera")]
-    if other:
-        print(f"  other labels: {len(other)}")
+        cells = [str(sum(r["pred"] == pred and r["your_label"] == lbl for r in rows)) for lbl in LABELS]
+        print(f"| {pred} | " + " | ".join(cells) + " |")
+    judged = [r for r in rows if r["your_label"] in TUTOR_VISIBLE | {"share", "camera_off"}]
+    agree = sum((r["pred"] == "camera") == (r["your_label"] in TUTOR_VISIBLE) for r in judged)
+    rate = agree / len(judged)
+    print(f"\nAgreement (both and camera = tutor visible; other excluded): {agree}/{len(judged)} = {rate:.0%}")
+    print(f"Bar for a critical face check (E6): 85% -> {'met' if rate >= 0.85 else 'not met'}")
+
+    s = get_settings()
+    metrics = {}
+    for item in discover(s.classes_dir):
+        if item.video and any(r["class"] == item.key for r in rows):
+            cdir = cache_dir_for(sha256_file(item.video))
+            metrics[item.key] = {int(m.t_s): m for m in cached_frame_metrics(item.video, cdir)}
+    print("\n| your label | frames | YuNet found a face (640 px frames) |")
+    print("|---|---|---|")
+    for lbl in LABELS:
+        sel = [r for r in rows if r["your_label"] == lbl]
+        if sel:
+            found = sum(metrics[r["class"]][int(r["t_s"])].face_count > 0 for r in sel)
+            print(f"| {lbl} | {len(sel)} | {found} |")
 
 
 if __name__ == "__main__":
