@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from cqa.schemas import Transcript, Turn
-from cqa.transcript.privacy import anonymise, leak_counts, pseudonymise, scrub_stats
+from cqa.transcript.privacy import anonymise, leak_counts, over_scrub_share, pseudonymise
 from cqa.transcript.roles import assign_roles
 from cqa.transcript.vtt import merge_turns, parse_vtt
 
@@ -148,9 +148,27 @@ def test_leak_counts():
     assert leak_counts("Then Kavya moved.", "", names).caps == 1
 
 
-def test_scrub_stats():
-    t, _ = anonymise(_vtt(("Priya Raman", "Kavya, sit down please now"), ("Meera Kapoor", "ok")))
-    assert scrub_stats(t) == (1, 1 / 5)
+def test_common_word_resembling_short_name_survives():
+    # "need" is 75% similar to "Neel" but is ordinary English (wordfreq zipf ~6)
+    t, _ = anonymise(_vtt(("Priya Raman", "you need to move. Need help?"), ("Neel Shah", "ok")))
+    assert t.turns[0].text == "you need to move. Need help?"
+
+
+def test_rare_mangled_name_is_scrubbed():
+    # "tenvica" is 71% similar to "Tanvika": too far to claim it is S1, close enough to be a name
+    t, _ = anonymise(_vtt(("Priya Raman", "good try tenvica, now the rook"), ("Tanvika Rao", "ok")))
+    assert t.turns[0].text == "good try [NAME], now the rook"
+
+
+def test_over_scrub_share():
+    raw = _vtt(("Priya Raman", "Kavya, sit down please now"), ("Will Smith", "ok"))
+    t, _ = anonymise(raw)
+    assert t.turns[0].text == "[NAME], sit down please now"
+    assert over_scrub_share(raw, t) == 0.0  # a rare name scrubbed is not over-scrubbing
+    raw = _vtt(("Priya Raman", "we will play now and you will win"), ("Will Smith", "ok"))
+    t, _ = anonymise(raw)
+    assert t.turns[0].text == "we S1 play now and you S1 win"  # exact display-name match on a common word
+    assert over_scrub_share(raw, t) == 2 / 8
 
 
 def test_scrub_names_for_whisper_text():

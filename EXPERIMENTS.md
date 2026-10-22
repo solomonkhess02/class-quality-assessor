@@ -162,3 +162,43 @@ Append-only. Each entry: hypothesis, method, result, decision. No real names or 
   2. (c) is above 2% in 6 classes (B516 3.99%, B491 3.17%, B441 2.94%, B482 2.25%, B392 2.05%, Malayalam demo/1 7.06%, whose English ASR is noise). Aggregate breakdown of the tutor scrubs: repeated, vocatively used words (3+ uses, at least one followed by , ? !) are 3-49 scrubs per class and are very likely real children's names that are nobody's display name. Scrubs of words used only once (the upper bound on wrongly scrubbed ordinary words) are at most 1.39% of tutor words in every labelled class except B516 (2.75%) and demo/1 (5.66%).
   3. Rejected alternative: keep a capitalised word if it appears lowercase in the same class. It lowered (c) by only 0.1-0.8 points and, when one lowercase use was enough, it let display names back through (B516 (b) 4 -> 8).
 - Decision: ship the second pass plus the lowercase fuzzy pass. The 70-84 hits wait for manual review of the dump. As defined, (c) counts correct scrubs of real names too; the measure of over-scrubbing is the one-off share, which fails only for B516 and the unusable Malayalam transcript. The judge input changed, so eval/results.md predates this change and has not been re-run.
+
+## E11b (22 Oct): Choosing the scrubber settings against a human review of the leak hits (P2.1)
+- Input: the user labelled the 37 distinct 70-84 matches from E11 (local only): 16 real names, mostly ASR-mangled spellings of known names, and 21 ordinary words. So E11's 70-84 band contained a real leak, not just noise.
+- Change: fuzzy matching against display-name tokens is now case-insensitive. At >= 85 a match becomes the child's pseudonym (unchanged). In the new loose band (>= threshold, < 85) it becomes [NAME], not a pseudonym, so a mangled spelling is not credited to a specific child. Common English words (wordfreq zipf (en) >= cutoff) are skipped in the loose band and by the capitalised-word [NAME] scrubber; the chess and sentence allowlists stay. (c) is now the over-scrub share: common English words (zipf >= 3.5, fixed for all variants) that anonymisation replaced, as a share of tutor words, found by word-aligning the raw and anonymised turns.
+- Method: scripts/scrub_sweep.py, grid set in advance: loose-band threshold 70 / 75 / 80 x common-word cutoff 3.5 / 4.0. Selection rule set in advance: catch all 16 labelled names with the fewest labelled words scrubbed; on a tie, the stricter privacy option. 11 classes (demo/1 skipped).
+
+| variant | names caught (of 16) | labelled words scrubbed (of 21) | over-scrub max | over-scrub mean |
+|---|---|---|---|---|
+| E11 (no loose band, no skip) | 0 | 1 | 2.13% | 1.17% |
+| >= 70, zipf >= 3.5 | 13 | 2 | 0.66% | 0.11% |
+| **>= 70, zipf >= 4.0 (chosen)** | **15** | **4** | **1.11%** | **0.36%** |
+| >= 75, zipf >= 3.5 | 7 | 2 | 0.66% | 0.11% |
+| >= 75, zipf >= 4.0 | 8 | 4 | 1.06% | 0.36% |
+| >= 80, zipf >= 3.5 | 5 | 1 | 0.66% | 0.11% |
+| >= 80, zipf >= 4.0 | 5 | 1 | 1.06% | 0.36% |
+
+- Result:
+  1. No variant in the grid catches all 16. The name missed at zipf >= 4.0 is itself a common English word (zipf >= 4, 5 letters): the ASR turned a name into a real word, and any common-word skip at <= 4.0 keeps it. At 3.5, two more names of that kind are kept. Outside the grid, for information only and not used for selection: zipf >= 4.5 catches 16 with 5 words scrubbed and 1.51% max over-scrub; no skip catches 16 with all 21 words scrubbed.
+  2. Chosen: >= 70 with zipf >= 4.0, the natural extension of the rule (most names caught, then fewest words).
+  3. Bug found while auditing: the first version applied the common-word skip at every score, which let one common word at 89% similarity to a name through (B516, a new >= 85 hit). The skip now applies only to the loose band; >= 85 matches are replaced even when they are English words. The sweep was re-run after the fix.
+  4. Over-scrub sources (aggregate): at zipf 3.5 almost all of it comes from the unchanged exact display-name path, where a display-name token is itself a common word (24 replacements in B472, 12 in B441). Some of those are probably correct scrubs of a child whose name is an English word, which the metric cannot tell apart. At 4.0, B516 adds 24 [NAME] scrubs of words in the zipf 3.5-4.0 band.
+- Audit with the chosen settings (scripts/leak_audit.py; (b) columns count distinct tokens):
+
+| class | (a) caps | (b) >= 85 | (b) 70-84 | labelled names left | unlabelled 70-84 | (c) over-scrub |
+|---|---|---|---|---|---|---|
+| average/B435 | 52 | 0 | 2 | 0 | 1 | 0.06% |
+| average/B516 | 86 | 0 | 1 | 0 | 0 | 1.11% |
+| demo/2 | 117 | 0 | 6 | 0 | 1 | 0.16% |
+| excellent/B472 | 211 | 0 | 3 | 1 | 0 | 0.76% |
+| excellent/B491 | 144 | 0 | 3 | 0 | 0 | 0.21% |
+| good/B435 | 59 | 0 | 0 | 0 | 0 | 0.07% |
+| good/B552 | 140 | 0 | 0 | 0 | 0 | 0.39% |
+| quality issue/B392 | 139 | 0 | 1 | 0 | 0 | 0.08% |
+| quality issue/B441 | 158 | 0 | 4 | 0 | 1 | 0.71% |
+| weak/B482 | 66 | 0 | 1 | 0 | 1 | 0.26% |
+| weak/B558 | 128 | 0 | 1 | 0 | 0 | 0.18% |
+
+- Gate D16: FAIL. There are 0 hits at >= 85, but 1 labelled name is left (the common-word name in B472), and 4 new 70-84 matches are unlabelled. All 4 have zipf >= 4.33: they are words the skip now keeps instead of scrubbing them as mid-sentence capitals, so they still need labels. Over-scrub target <= 0.5%: missed in B516 (1.11%), B472 (0.76%) and B441 (0.71%). (a) rose because common capitalised words are no longer scrubbed.
+- Caveat: these settings are tuned on our 12 classes and on one person's labels. Unseen classes will have different names, different ASR manglings and different common-word collisions, so the settings carry no guarantee beyond these classes. The common-word skip also applies to the whisper path, where any child whose name is a common English word (e.g. a nickname) is no longer scrubbed.
+- Decision: ship >= 70 / zipf >= 4.0 as the best option inside the pre-set grid. Release stays blocked by D16 until the remaining name and the unlabelled matches are resolved.

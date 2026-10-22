@@ -5,14 +5,19 @@ The returned mapping (real display name -> pseudonym) must never leave the proce
 
 from __future__ import annotations
 
+import difflib
 import re
 from dataclasses import dataclass
+from functools import cache
 
 from rapidfuzz import fuzz
+from wordfreq import zipf_frequency
 
 from cqa.schemas import Transcript
 
-FUZZY_MIN = 85
+FUZZY_MIN = 85  # >= this: the same child, replaced by their pseudonym
+NAME_FUZZY_MIN = 70  # >= this (below FUZZY_MIN): likely an ASR-mangled name, replaced by [NAME] (E11b)
+COMMON_ZIPF = 4.0  # wordfreq zipf (en) at or above this: ordinary English, never fuzzy-matched or scrubbed (E11b)
 DEVICE_WORDS = {
     "iphone", "ipad", "galaxy", "android", "phone", "mobile", "laptop", "pc", "desktop",
     "macbook", "mac", "tablet", "tab", "redmi", "samsung", "oppo", "vivo", "realme", "pixel",
@@ -63,27 +68,46 @@ def _assign_pseudonyms(transcript: Transcript) -> dict[str, str]:
     return mapping
 
 
-def _replace_names(text: str, patterns: list[tuple[re.Pattern[str], str]], fuzzy: dict[str, str]) -> str:
+@cache
+def is_common_word(word: str, min_zipf: float = COMMON_ZIPF) -> bool:
+    return zipf_frequency(word.lower(), "en") >= min_zipf
+
+
+def _keep(tok: str, common_zipf: float) -> bool:
+    return tok.lower() in ALLOWED_CAPS or is_common_word(tok, common_zipf)
+
+
+def _replace_names(
+    text: str,
+    patterns: list[tuple[re.Pattern[str], str]],
+    fuzzy: dict[str, str],
+    name_min: float = NAME_FUZZY_MIN,
+    common_zipf: float = COMMON_ZIPF,
+) -> str:
     for pat, pseudo in patterns:
         text = pat.sub(pseudo, text)
 
     def fuzzy_sub(m: re.Match[str]) -> str:
+        # Any case: lowercase and ASR-mangled name variants leak too (E11, E11b). The common-word skip only
+        # applies to the loose band; a close match is replaced even when it is an English word.
         tok = m.group(0)
-        # Lowercase name variants ("arav") leak too (E11); lowercase tokens are mostly ordinary words, so they
-        # get the wider allowlist.
-        if tok.lower() in (STOPWORDS if tok[0].isupper() else ALLOWED_CAPS):
+        if tok.lower() in ALLOWED_CAPS:
             return tok
-        best, best_score = None, 0.0
+        best, best_score = tok, 0.0
         for name, pseudo in fuzzy.items():
             score = fuzz.ratio(tok.lower(), name)
             if score > best_score:
                 best, best_score = pseudo, score
-        return best if best and best_score >= FUZZY_MIN else tok
+        if best_score >= FUZZY_MIN:
+            return best
+        return NAME_TOKEN if best_score >= name_min and not is_common_word(tok, common_zipf) else tok
 
     return _WORD_TOKEN.sub(fuzzy_sub, text)
 
 
-def pseudonymise(transcript: Transcript) -> tuple[Transcript, dict[str, str]]:
+def pseudonymise(
+    transcript: Transcript, name_min: float = NAME_FUZZY_MIN, common_zipf: float = COMMON_ZIPF
+) -> tuple[Transcript, dict[str, str]]:
     """Return (pseudonymised transcript, mapping). Expects roles to be assigned."""
     mapping = _assign_pseudonyms(transcript)
 
@@ -106,7 +130,7 @@ def pseudonymise(transcript: Transcript) -> tuple[Transcript, dict[str, str]]:
         t.model_copy(
             update={
                 "speaker": mapping.get(t.speaker, t.speaker),
-                "text": _replace_names(t.text, patterns, fuzzy),
+                "text": _replace_names(t.text, patterns, fuzzy, name_min, common_zipf),
             }
         )
         for t in transcript.turns
@@ -145,10 +169,10 @@ _SENTENCE_START = re.compile(r"(?:^|[.?!]\s+)$")
 NAME_TOKEN = "[NAME]"
 
 
-def scrub_names(text: str) -> str:
+def scrub_names(text: str, common_zipf: float = COMMON_ZIPF) -> str:
     def sub(m: re.Match[str]) -> str:
         tok = m.group(0)
-        if tok.lower() in ALLOWED_CAPS or _PSEUDONYM.match(tok):
+        if _keep(tok, common_zipf) or _PSEUDONYM.match(tok):
             return tok
         at_start = bool(_SENTENCE_START.search(text[: m.start()]))
         vocative = text[m.end() : m.end() + 1] in {",", "?", "!"}
@@ -157,21 +181,24 @@ def scrub_names(text: str) -> str:
     return _CAP_TOKEN.sub(sub, text)
 
 
-def scrub_transcript(transcript: Transcript) -> Transcript:
-    turns = [t.model_copy(update={"text": scrub_names(t.text)}) for t in transcript.turns]
+def scrub_transcript(transcript: Transcript, common_zipf: float = COMMON_ZIPF) -> Transcript:
+    turns = [t.model_copy(update={"text": scrub_names(t.text, common_zipf)}) for t in transcript.turns]
     return transcript.model_copy(update={"turns": turns})
 
 
-def anonymise(transcript: Transcript) -> tuple[Transcript, dict[str, str]]:
+def anonymise(
+    transcript: Transcript, name_min: float = NAME_FUZZY_MIN, common_zipf: float = COMMON_ZIPF
+) -> tuple[Transcript, dict[str, str]]:
     """The only transcript text that may leave the process. Expects roles to be assigned.
 
-    VTT: display names -> pseudonyms, then the [NAME] scrubber for names said aloud that are nobody's display
-    name (a parent's account, "iPhone (Arjun)", absent children). Whisper: scrubber only.
+    VTT: display names -> pseudonyms (fuzzy variants below FUZZY_MIN -> [NAME]), then the [NAME] scrubber for
+    names said aloud that are nobody's display name (a parent's account, absent children). Whisper: scrubber
+    only. Common English words are kept unless they exactly match a display name.
     """
     mapping: dict[str, str] = {}
     if transcript.source == "vtt":
-        transcript, mapping = pseudonymise(transcript)
-    return scrub_transcript(transcript), mapping
+        transcript, mapping = pseudonymise(transcript, name_min, common_zipf)
+    return scrub_transcript(transcript, common_zipf), mapping
 
 
 # Leak audit (scripts/leak_audit.py). Counts only; matched tokens never leave the local machine.
@@ -220,10 +247,24 @@ def leak_counts(text: str, template: str, display_names: list[str]) -> LeakCount
     )
 
 
-def scrub_stats(transcript: Transcript) -> tuple[int, float]:
-    """(c) Over-scrubbing: [NAME] replacements, and the share of tutor word tokens that are [NAME]."""
-    total = sum(t.text.count(NAME_TOKEN) for t in transcript.turns)
-    tutor = [t.text for t in transcript.turns if t.role == "tutor"]
-    words = sum(len(x.split()) for x in tutor)
-    scrubbed = sum(x.count(NAME_TOKEN) for x in tutor)
-    return total, scrubbed / words if words else 0.0
+OVER_SCRUB_ZIPF = 3.5  # "common English word" for metric (c); fixed so scrubber variants are comparable
+
+
+def scrubbed_words(before: str, after: str) -> list[str]:
+    """Words of `before` that anonymisation replaced, by word-level alignment with `after`."""
+    a, b = before.split(), after.split()
+    out: list[str] = []
+    for op, i1, i2, _, _ in difflib.SequenceMatcher(a=a, b=b, autojunk=False).get_opcodes():
+        if op in ("replace", "delete"):
+            out += [w for x in a[i1:i2] for w in _WORD.findall(x) if len(w) >= 3]
+    return out
+
+
+def over_scrub_share(raw: Transcript, anon: Transcript, min_zipf: float = OVER_SCRUB_ZIPF) -> float:
+    """(c) Common English words that anonymisation replaced, as a share of tutor words."""
+    words = scrubbed = 0
+    for r, a in zip(raw.turns, anon.turns, strict=True):
+        if r.role == "tutor":
+            words += len(r.text.split())
+            scrubbed += sum(is_common_word(w, min_zipf) for w in scrubbed_words(r.text, a.text))
+    return scrubbed / words if words else 0.0

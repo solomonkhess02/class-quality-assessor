@@ -5,6 +5,7 @@ python-dotenv>=1.0
 pydantic>=2.7
 tenacity>=8.2
 rapidfuzz>=3.6
+wordfreq>=3.1  # common-English-word skip in the name scrubber (E11b)
 # media / vision (local only)
 opencv-python-headless>=4.10,<5  # OpenCV 5 removed CascadeClassifier; we use FaceDetectorYN (YuNet)
 numpy>=1.26
