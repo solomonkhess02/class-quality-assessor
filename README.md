@@ -14,7 +14,7 @@ Rates a recorded 8x8 online kids' chess class as **Poor / Average / Good / Excel
    - per-criterion details;
    - what the tool could not check, and reliability notes.
 
-Without a transcript, the audio is transcribed on the server: about 10-30 minutes for a 50-minute class, and speakers are not identified. Recordings longer than 2 hours are accepted; only the opening, three middle samples and the closing are assessed.
+Without a transcript, only parts of the audio are transcribed on the server (the first 8 min, the last 6 min and two 2-min samples). That takes a few minutes per class, and speakers are not identified. Recordings longer than 2 hours are accepted, but the transcript is assessed from those same windows only.
 
 ## How it works
 ```
@@ -35,19 +35,37 @@ Criteria (from the organiser's feedback on the sample classes): opening and rapp
 ## Evaluation
 Measured on the 10 labelled sample classes, with repeated judge runs ([docs/EVALUATION.md](docs/EVALUATION.md), [eval/scorecard.md](eval/scorecard.md)).
 
-| Metric | Result |
-|---|---|
-| Exact label | 5 / 10 (all 3 runs) |
-| Within one level | 9.7 / 10 (mean of 3 runs, range 9-10) |
-| Pairwise order agreement | 88% of 36 class pairs |
-| Bias (mean predicted - true level) | -0.53 (harsh: both Average classes are rated Poor, both Excellent classes Good) |
-| Same label across repeated runs | 9 / 10 classes |
-| Criterion agreement with organiser notes | 73% balanced (96% of praised points, 50% of criticised points) |
-| Privacy gate (no names sent to the judge) | 0 name matches at >= 85% similarity, 0 known names left; 4 borderline matches awaiting human review |
-| No transcript given (whisper path) vs VTT, same class | 0 / 2 labels the same: Excellent B472 Good -> Average, weak B482 Poor -> Average |
-| Whisper time per class (2 threads, 18 min of audio) | 2-6 min (133-357 s on 4 classes) |
+Final configuration, VTT path with video, 3 judge runs (scorecard tag `final`, 22 Oct). Values are the mean over the runs, with the range in brackets.
 
-Final configuration, 3 runs on the VTT path, 22 Oct ([eval/scorecard.md](eval/scorecard.md)). Trivial baselines: always "Poor" gets 4/10 exact and 50% pairwise. The label rule was written from the organiser's notes on these same 10 classes, so these numbers are optimistic.
+| Metric | Result | Best trivial baseline |
+|---|---|---|
+| Exact label | 5 / 10 [5-5] | 4 / 10 (always "Poor") |
+| Within one level | 9.7 / 10 [9-10] | 8 / 10 (always "Average") |
+| Pairwise ordering (36 class pairs) | 88% [88-89] | 50% (any constant or random label) |
+| Mean absolute error (levels) | 0.53 [0.50-0.60] | 1.00 (always "Average") |
+| Bias (predicted - true level; negative = harsh) | -0.53 [-0.60 to -0.50]: both Average classes rated Poor, both Excellent classes Good | -0.20 (always "Average") |
+| Weakness recall (organiser's criticised criteria caught) | 50% of 18 | - |
+| Feedback recall, all organiser points | 66% of 47 | - |
+| - points visible in the transcript | 86% of 28 | - |
+| - points visible only on video | 21% of 12 | - |
+| - points audible only in the voice | 56% of 6 | - |
+| Evidence validity (quotes found in the transcript) | 100% [99-100] of ~191 quotes per run | - |
+| Run agreement (same label in all 3 runs) | 9 / 10 classes | - |
+| Privacy gate (no names sent to the judge) | 0 name matches at >= 85% similarity, 0 known names left; 4 borderline matches awaiting human review | - |
+
+Trivial baselines in full ([eval/scorecard.md](eval/scorecard.md)):
+
+| Baseline | Exact | Within one | MAE | Bias | Pairwise |
+|---|---|---|---|---|---|
+| Always "Poor" | 4/10 | 6/10 | 1.20 | -1.20 | 50% |
+| Always "Average" | 2/10 | 8/10 | 1.00 | -0.20 | 50% |
+| Random label (expected) | 2.5/10 | 6/10 | 1.30 | +0.30 | 50% |
+
+**No-transcript path** (whisper instead of the Zoom VTT; EXPERIMENTS E22, E23):
+- Same label as the VTT path on 0 of 2 tested classes: Excellent B472 went from Good to Average, and weak B482 from Poor to Average. Without speakers, "no rapport" cannot be measured. The shorter windows also missed one class's homework.
+- Whisper took 2-6 minutes per class (133-357 s on 4 classes) for 18 minutes of audio on 2 threads.
+
+**These numbers are optimistic.** The label rules were written from the organiser's notes on these same 10 classes, and with 2 classes per level a single class moves exact accuracy by 10 points. Treat them as a check that the method is sound, not as accuracy on unseen classes.
 
 ## Privacy
 - Audio, video and frames never leave the server. Transcription (whisper.cpp) and face detection (OpenCV) run locally.
