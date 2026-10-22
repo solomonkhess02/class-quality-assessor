@@ -51,7 +51,7 @@ Final configuration, VTT path with video, 3 judge runs (scorecard tag `final_v2`
 | - points audible only in the voice | 39% of 6 | - |
 | Evidence validity (quotes found in the transcript) | 99% [99-99] of ~193 quotes per run | - |
 | Run agreement (same label in all 3 runs) | 9 / 10 classes | - |
-| Privacy gate (no names sent to the judge) | **Failing on the no-transcript path.** VTT path: pass (0 name matches at >= 85% similarity, every borderline match human-reviewed, 1 documented exception: an ASR-mangled form of the tutor's name, E24). No-transcript (whisper) path: 1 child's name, written in lowercase, still reaches the judge in 1 of 3 audited classes (E27) | - |
+| Privacy gate (no names sent to the judge) | Pass on both paths. VTT path: 0 name matches at >= 85% similarity, every borderline match human-reviewed, 1 documented exception (an ASR-mangled form of the tutor's name, E24). No-transcript path (3 classes with a cached whisper transcript): 0 name matches (E27) | - |
 
 Trivial baselines in full ([eval/scorecard.md](eval/scorecard.md)):
 
@@ -83,6 +83,7 @@ Trivial baselines in full ([eval/scorecard.md](eval/scorecard.md)):
 - The tutor-face check is indicative only. The screen-share tag agrees with hand labels on 74% of frames, so a missing face cannot yet be told apart from a screen share. It counts as a moderate problem, not a critical one.
 - Rapport is measured as a warm-up between the tutor's first greeting and the first lesson content. A tutor who builds rapport by questioning each child at the start, with no separate chat, is marked as having no rapport.
 - Without a speaker-labelled transcript (whisper path) the label is checked on only 2 classes (both matched the VTT path). Speakers are not identified, so the warm-up is not measured: rapport is judged from a quoted line instead (the report says which method was used), and individual questioning cannot be attributed to children, so engagement tends to score lower. Only parts of the class are transcribed (first 8 min, last 10 min, two 2-min samples); anything in between is missed. The class language must be chosen in the app (English or Malayalam); auto-detection was dropped after it labelled an English opening as Sinhala. Malayalam is not usable with the current speech model (E21).
+- Without a speaker-labelled transcript the app rarely gives Poor; upload the Zoom VTT for the most reliable label.
 - The report shows no numeric confidence: on the labelled set it was as high on wrong labels as on right ones. Reliability notes take its place.
 
 ## Run locally (Windows)

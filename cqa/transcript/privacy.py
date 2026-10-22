@@ -215,6 +215,21 @@ def scrub_transcript(transcript: Transcript, common_zipf: float = COMMON_ZIPF, s
     return transcript.model_copy(update={"turns": turns})
 
 
+ENGLISH_LANGUAGES = {"en", "english"}
+_LOWER_LATIN = re.compile(r"\b[a-z]{3,}\b")  # Latin script only: Malayalam or other scripts never match
+
+
+def scrub_non_english(text: str) -> str:
+    """E27 (c): a lowercase Latin word that is not English at all (wordfreq zipf 0) and not allowlisted reads as a
+    name whisper wrote in lowercase. Only for an English class on the whisper path (see anonymise)."""
+
+    def sub(m: re.Match[str]) -> str:
+        tok = m.group(0)
+        return tok if tok in ALLOWED_CAPS or zipf_frequency(tok, "en") > 0 else NAME_TOKEN
+
+    return _LOWER_LATIN.sub(sub, text)
+
+
 def anonymise(
     transcript: Transcript, name_min: float = NAME_FUZZY_MIN, common_zipf: float = COMMON_ZIPF
 ) -> tuple[Transcript, dict[str, str]]:
@@ -228,7 +243,12 @@ def anonymise(
     if transcript.source == "vtt":
         transcript, mapping = pseudonymise(transcript, name_min, common_zipf)
     # no display names (whisper, or a transcript without speaker names): the scrubber is the only defence (E27)
-    return scrub_transcript(transcript, common_zipf, strict=not mapping), mapping
+    transcript = scrub_transcript(transcript, common_zipf, strict=not mapping)
+    if transcript.source == "whisper" and transcript.language.lower() in ENGLISH_LANGUAGES:
+        # (c): never for another class language, whose words are "not English" by definition (E27)
+        turns = [t.model_copy(update={"text": scrub_non_english(t.text)}) for t in transcript.turns]
+        transcript = transcript.model_copy(update={"turns": turns})
+    return transcript, mapping
 
 
 # Leak audit (scripts/leak_audit.py). Counts only; matched tokens never leave the local machine.

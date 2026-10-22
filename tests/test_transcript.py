@@ -269,6 +269,20 @@ def test_whisper_path_scrubs_vocatives_and_rare_words_at_sentence_start():
     ]
 
 
+def test_whisper_english_class_scrubs_lowercase_non_english_words():
+    # synthetic: "tenvica" (a mangled name) written in lowercase by whisper is not an English word (zipf 0)
+    t, _ = anonymise(_whisper("well done tenvica. now the knight takes the pawn").model_copy(update={"language": "en"}))
+    assert t.turns[0].text == "well done [NAME]. now the knight takes the pawn"
+
+
+def test_malayalam_class_is_never_scrubbed_as_non_english():
+    text = "നന്നായി ചെയ്തു, tenvica. ഇനി കുതിര"  # Malayalam script plus a Latin non-English token
+    ml, _ = anonymise(_whisper(text).model_copy(update={"language": "ml"}))
+    assert ml.turns[0].text == text  # no "not an English word" scrub for a non-English class
+    en, _ = anonymise(_whisper(text).model_copy(update={"language": "en"}))
+    assert "നന്നായി ചെയ്തു" in en.turns[0].text and "ഇനി കുതിര" in en.turns[0].text  # script untouched
+
+
 def test_whisper_path_keeps_chess_and_pseudonyms():
     chess = (
         "Now, Knight to f3. Bishop takes the Rook! Castle King side, then Checkmate with the Queen. "
