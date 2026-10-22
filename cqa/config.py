@@ -24,7 +24,7 @@ class Settings(BaseModel):
     judge_design: str = "direct"  # "direct" | "facts" (EXPERIMENTS, M6b)
     aggregation: str = "problems"  # "problems" | "mean" (DECISIONS D12) | "severity" (ablation A3)
     # Ablation switches (docs/EVALUATION.md); defaults are the last kept configuration
-    judge_evidence_first: bool = False  # A0: observations and evidence before the score in the judge's example
+    judge_evidence_first: bool = True  # A0 (kept, E13): observations and evidence before the score in the judge's example
     tech_scorer: str = "llm"  # A1: "llm" | "code" (DECISIONS D14)
     label_exclude: str = ""  # A1: comma-separated criteria shown but left out of the label (DECISIONS D15)
     facts_drive: bool = False  # A2: verified yes/no facts bound the opening, engagement and closure scores
