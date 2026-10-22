@@ -275,6 +275,25 @@ def test_whisper_english_class_scrubs_lowercase_non_english_words():
     assert t.turns[0].text == "well done [NAME]. now the knight takes the pawn"
 
 
+def test_one_word_sentence_name_is_scrubbed_interjections_and_chess_survive():
+    # synthetic: "Hope" is a name that is also a common word, said as a whole sentence (E28)
+    lines = [
+        "Hope. Okay, your mic is off.",
+        "Very good. Hope",  # end of the turn
+        "Okay. Checkmate. Right.",
+        "Hope you enjoyed it. Wait.",
+    ]
+    t, _ = anonymise(_whisper(*lines).model_copy(update={"language": "en"}))
+    assert [x.text for x in t.turns] == [
+        "[NAME]. Okay, your mic is off.",
+        "Very good. [NAME]",
+        "Okay. Checkmate. Right.",
+        "Hope you enjoyed it. Wait.",
+    ]
+    ml, _ = anonymise(_whisper("Hope. ok").model_copy(update={"language": "ml"}))
+    assert ml.turns[0].text == "Hope. ok"  # English classes only
+
+
 def test_malayalam_class_is_never_scrubbed_as_non_english():
     text = "നന്നായി ചെയ്തു, tenvica. ഇനി കുതിര"  # Malayalam script plus a Latin non-English token
     ml, _ = anonymise(_whisper(text).model_copy(update={"language": "ml"}))

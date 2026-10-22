@@ -230,6 +230,29 @@ def scrub_non_english(text: str) -> str:
     return _LOWER_LATIN.sub(sub, text)
 
 
+# E28: words a tutor says as a whole one-word sentence that are not names
+INTERJECTIONS = {
+    "okay", "ok", "yes", "no", "yeah", "good", "great", "nice", "right", "correct", "wrong", "perfect", "excellent",
+    "hello", "hi", "bye", "sorry", "thanks", "wow", "done", "next", "wait", "listen", "look", "see", "now", "so",
+    "well",
+}  # fmt: skip
+# a capitalised word at a turn or sentence start that is the whole sentence: "Name." or "Name" at the end of a turn
+_ONE_WORD_SENTENCE = re.compile(r"(?:^|(?<=[.?!])\s+)([A-Z][a-zA-Z]{2,})(?=\.|\s*$)")
+
+
+def scrub_one_word_sentences(text: str) -> str:
+    """E28: a capitalised word forming a whole sentence ("Name. [NAME], your mic is off.") reads as a name, even
+    when it is a common word, unless it is an interjection or a chess term. English class, whisper path only."""
+
+    def sub(m: re.Match[str]) -> str:
+        tok = m.group(1)
+        if tok.lower() in INTERJECTIONS or tok.lower() in CHESS_TERMS or _PSEUDONYM.match(tok):
+            return m.group(0)
+        return m.group(0)[: m.start(1) - m.start(0)] + NAME_TOKEN
+
+    return _ONE_WORD_SENTENCE.sub(sub, text)
+
+
 def anonymise(
     transcript: Transcript, name_min: float = NAME_FUZZY_MIN, common_zipf: float = COMMON_ZIPF
 ) -> tuple[Transcript, dict[str, str]]:
@@ -246,7 +269,9 @@ def anonymise(
     transcript = scrub_transcript(transcript, common_zipf, strict=not mapping)
     if transcript.source == "whisper" and transcript.language.lower() in ENGLISH_LANGUAGES:
         # (c): never for another class language, whose words are "not English" by definition (E27)
-        turns = [t.model_copy(update={"text": scrub_non_english(t.text)}) for t in transcript.turns]
+        turns = [
+            t.model_copy(update={"text": scrub_one_word_sentences(scrub_non_english(t.text))}) for t in transcript.turns
+        ]
         transcript = transcript.model_copy(update={"turns": turns})
     return transcript, mapping
 

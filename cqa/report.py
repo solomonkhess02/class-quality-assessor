@@ -10,7 +10,7 @@ from pathlib import Path
 from cqa.config import get_settings
 from cqa.judge.rubric import BY_ID
 from cqa.schemas import Assessment, CriterionResult, Evidence
-from cqa.scoring import severity_checks
+from cqa.scoring import FACE_UNDEREXPOSED_LUMA, severity_checks
 from cqa.transcript.quality import MAX_NON_ENGLISH_SHARE, MIN_WORDS_PER_MIN
 
 QUOTE_CHARS = 140
@@ -69,6 +69,12 @@ def _criterion(a: Assessment, cid: str) -> CriterionResult | None:
     return next((c for c in a.criteria if c.id == cid), None)
 
 
+def lighting_text(face_luma: float) -> str:
+    """The lighting check in plain words (A3b: underexposed below FACE_UNDEREXPOSED_LUMA)."""
+    how = "slightly underexposed" if face_luma >= FACE_UNDEREXPOSED_LUMA - 15 else "underexposed"
+    return f"Lighting: the tutor's face is {how} (brightness {face_luma:.0f}, threshold {FACE_UNDEREXPOSED_LUMA:.0f})"
+
+
 def key_reasons(a: Assessment, n: int = 3) -> list[Reason]:
     """The counted problems behind the label (critical first), then the strongest counted criteria."""
     counted = a.meta.get("critical", []) + a.meta.get("moderate", [])
@@ -87,7 +93,9 @@ def key_reasons(a: Assessment, n: int = 3) -> list[Reason]:
             if ev is None and c is not None and BY_ID.get(crit_id) and BY_ID[crit_id].scored_by == "llm":
                 ev = _verified(c.evidence)
             text = f"{tier[desc].capitalize()} problem: {desc}"
-            if ev is None and c is not None and c.observations:
+            if cid == "dark_face" and a.visual is not None and a.visual.median_face_brightness is not None:
+                text = f"{tier[desc].capitalize()} problem. {lighting_text(a.visual.median_face_brightness)}"
+            elif ev is None and c is not None and c.observations:
                 text += f". {c.observations[0]}"
             reasons.append(Reason(text=text, problem=True, evidence=ev, criterion=crit_id))
     strong = sorted(

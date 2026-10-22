@@ -152,6 +152,19 @@ def test_unusable_transcript_without_recording_shows_no_label():
     assert not any(">Good<" in m.value for m in at.markdown) and "Key reasons" not in [h.value for h in at.subheader]
 
 
+def test_lighting_reason_in_plain_words():
+    from cqa import report
+
+    a = synthetic_assessment()
+    a.visual = a.visual.model_copy(update={"median_face_brightness": 82.0, "pct_face_camera": 90.0})
+    a.meta.update({"label_excluded": ["communication"], "critical": [], "moderate": ["lighting: face luma 82 (< 85)"]})
+    reasons = report.key_reasons(a)
+    assert reasons[0].text == (
+        "Moderate problem. Lighting: the tutor's face is slightly underexposed (brightness 82, threshold 85)"
+    )
+    assert report.lighting_text(40).startswith("Lighting: the tutor's face is underexposed")
+
+
 def test_report_sections():
     from cqa import report
 
