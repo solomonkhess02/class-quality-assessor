@@ -109,6 +109,49 @@ def test_player_mode_size_switch(tmp_path, monkeypatch):
     assert report.player_mode(tmp_path / "gone.mp4") == "none" and report.player_mode(None) == "none"
 
 
+def test_hero_label_and_legend():
+    at = AppTest.from_file(APP, default_timeout=30)
+    at.session_state["assessment"] = synthetic_assessment()
+    at.run()
+    assert not at.exception
+    assert any("font-size:2.4rem" in m.value and ">Good<" in m.value for m in at.markdown)
+    assert any(c.value.startswith("Children's names are replaced with S1, S2") for c in at.caption)
+
+
+def test_transcript_caution_once_and_human_names():
+    from cqa import report
+
+    a = synthetic_assessment()
+    a.meta["transcript_quality"] = {"usable": False, "words_per_min": 8.2, "non_english_share": 0.01}
+    a.meta.update({"generic_observations": 2, "observations": 20})
+    a.warnings = [
+        "The Zoom transcript looks unusable (only 8 words per minute were transcribed) and there is no recording to "
+        "fall back on.",
+        "Transcript quality is low: only 8 words per minute were transcribed.",
+        "technical_quality: no verified evidence, excluded from the score",
+        "2 of 20 observations look generic",
+    ]
+    notes = report.reliability_notes(a, {})
+    cautions = [n for n in notes if "words" in n and "min" in n]
+    assert cautions == ["The transcript is sparse (8 words/min), so findings may miss parts of the class."]
+    assert not any("unusable" in n or "generic" in n for n in notes)
+    assert "Technical quality: no verified evidence, excluded from the score" in notes
+    assert report.generic_note(a).startswith("2 of 20 judge observations look generic")
+    assert not report.unusable_without_recording(a)  # sparse only: still assessed, with the caution
+
+
+def test_unusable_transcript_without_recording_shows_no_label():
+    a = synthetic_assessment()
+    a.visual = None
+    a.meta["transcript_quality"] = {"usable": False, "words_per_min": 30.0, "non_english_share": 0.4}
+    at = AppTest.from_file(APP, default_timeout=30)
+    at.session_state["assessment"] = a
+    at.run()
+    assert not at.exception
+    assert any("could not be assessed" in e.value for e in at.error)
+    assert not any(">Good<" in m.value for m in at.markdown) and "Key reasons" not in [h.value for h in at.subheader]
+
+
 def test_report_sections():
     from cqa import report
 

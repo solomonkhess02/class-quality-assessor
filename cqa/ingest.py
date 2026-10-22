@@ -82,7 +82,7 @@ def download_drive(url: str) -> Path:
         except Exception as e:  # gdown raises its own errors for private files, quota limits, network problems
             raise InputError(
                 "Could not download the file from Google Drive. Check that sharing is set to "
-                f"'Anyone with the link' and that the link points to a file ({type(e).__name__})."
+                "'Anyone with the link' and that the link points to a file."
             ) from e
         if not out:
             raise InputError("Google Drive download failed; is the link shared with 'Anyone with the link'?")

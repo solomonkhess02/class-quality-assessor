@@ -2,7 +2,7 @@
 
 Rates a recorded 8x8 online kids' chess class as **Poor / Average / Good / Excellent**. Every finding cites a timestamp and a quote that code has checked against the transcript, and each finding comes with a concrete improvement.
 
-**Live app:** `<LIVE_LINK>`
+**Live app:** https://grdruygvyvrdqnjpappvzdu.streamlit.app/
 
 ## How to use it
 1. Give the recording: upload it (.mp4, .mkv, .webm or .mov), or paste a Google Drive link shared with "Anyone with the link". Use a Drive link for files over about 200 MB.

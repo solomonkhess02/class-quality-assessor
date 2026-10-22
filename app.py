@@ -18,16 +18,20 @@ from cqa.report import (
     PLAYER_MAX_BYTES,
     cannot_check,
     first_sentence,
+    generic_note,
     key_reasons,
     next_level_actions,
     player_mode,
     reliability_notes,
     short,
+    transcript_caution,
+    unusable_without_recording,
 )
 from cqa.schemas import Assessment, Evidence, parse_ts
 from cqa.transcript.formats import TRANSCRIPT_TYPES
 
-LABEL_COLOURS = {"Excellent": "green", "Good": "blue", "Average": "orange", "Poor": "red"}
+LABEL_HEX = {"Excellent": "#1a7f37", "Good": "#0969da", "Average": "#b26a00", "Poor": "#cf222e"}
+LEGEND = "Children's names are replaced with S1, S2… for privacy; TUTOR = the teacher."
 JOINERS = {"invited": "yes", "not_invited": "no", "none": "no new joiners seen", "unknown": "unknown"}
 UNAVAILABLE = (
     "Assessment service unavailable: the LLM judge is not configured or its account cannot be used right now. "
@@ -160,17 +164,20 @@ def evidence_line(e: Evidence, key: str, prefix: str = "") -> None:
 
 
 def show_header(a: Assessment) -> None:
-    c1, c2 = st.columns([1, 5])
-    with c1:
-        st.markdown("**Label**")
-        st.badge(a.label, color=LABEL_COLOURS[a.label])
-    with c2:
-        if a.summary:
-            st.markdown(f"**{first_sentence(a.summary)}**")
+    """The label is the hero: a large colour-coded badge, the one-line summary under it."""
+    colour = LABEL_HEX[a.label]
+    st.markdown(
+        f'<div style="display:inline-block;padding:0.35em 0.9em;border-radius:0.4em;background:{colour};'
+        f'color:#fff;font-size:2.4rem;font-weight:700;line-height:1.2">{a.label}</div>',
+        unsafe_allow_html=True,
+    )
+    if a.summary:
+        st.markdown(f"**{first_sentence(a.summary)}**")
 
 
 def show_reasons(a: Assessment) -> None:
     show_player()
+    st.caption(LEGEND)
     st.subheader("Key reasons")
     reasons = key_reasons(a)
     if not reasons:
@@ -310,6 +317,8 @@ def show_measurements(a: Assessment) -> None:
             )
 
     with st.expander("Run details"):
+        if note := generic_note(a):
+            st.markdown(note)
         st.json({k: v for k, v in a.meta.items() if k != "facts"})
     st.download_button(
         "Download assessment (JSON)",
@@ -320,6 +329,12 @@ def show_measurements(a: Assessment) -> None:
 
 
 def show(a: Assessment) -> None:
+    if unusable_without_recording(a):
+        st.error(
+            "This class could not be assessed: the transcript could not be read reliably and there is no recording "
+            "to fall back on. " + (transcript_caution(a) or "")
+        )
+        return
     show_header(a)
     show_reasons(a)
     show_criteria(a)

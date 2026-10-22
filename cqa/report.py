@@ -3,6 +3,7 @@ what could not be checked, reliability notes."""
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from cqa.config import get_settings
 from cqa.judge.rubric import BY_ID
 from cqa.schemas import Assessment, CriterionResult, Evidence
 from cqa.scoring import severity_checks
+from cqa.transcript.quality import MAX_NON_ENGLISH_SHARE, MIN_WORDS_PER_MIN
 
 QUOTE_CHARS = 140
 # severity check id -> (criterion whose evidence explains it, key fact whose "no" quote shows it)
@@ -155,5 +157,72 @@ def reliability_notes(a: Assessment, inputs: dict) -> list[str]:
             f"{dropped} of {total} quotes from the judge could not be found in the transcript and were dropped."
         )
     notes += inputs.get("notes", [])
-    notes += a.warnings
+    caution = transcript_caution(a)
+    if caution:
+        notes.append(caution)
+    notes += [humanise(w) for w in a.warnings if not w.startswith(MOVED_OR_REPHRASED) and not GENERIC_RE.match(w)]
     return list(dict.fromkeys(notes))
+
+
+# Pipeline warnings the report says differently: the transcript-quality ones become one caution
+# (transcript_caution), the dropped-quote count is already a note, and the generic-observation count is in Run details
+MOVED_OR_REPHRASED = (
+    "Transcript quality is low",
+    "The Zoom transcript looks unusable",
+    "The transcript looks unusable",
+    "Dropped ",
+)
+GENERIC_RE = re.compile(r"^\d+ of \d+ observations look generic$")
+FACT_NAMES = {
+    "homework_assigned": "homework assigned",
+    "recap_present": "closing recap",
+    "rapport_before_content": "rapport before content",
+    "each_child_asked_individually": "each child asked individually",
+    "children_greeted_by_name": "children greeted by name",
+    "new_joiners": "new joiners invited",
+    "content_start": "first line of lesson content",
+}
+_ID_RE = re.compile(r"\b(" + "|".join(map(re.escape, [*BY_ID, *FACT_NAMES])) + r")\b")
+
+
+def humanise(text: str) -> str:
+    """Criterion and fact ids in pipeline warnings -> display names (technical_quality -> Technical quality)."""
+    return _ID_RE.sub(lambda m: BY_ID[m.group(1)].name if m.group(1) in BY_ID else FACT_NAMES[m.group(1)], text)
+
+
+def transcript_caution(a: Assessment) -> str | None:
+    """One caution for a low-quality transcript that still produced an assessment, in place of the pipeline's
+    'quality is low' / 'looks unusable' warnings."""
+    q = a.meta.get("transcript_quality") or {}
+    parts = []
+    if q and not q.get("usable", True):
+        wpm, share = q.get("words_per_min"), q.get("non_english_share")
+        if wpm is not None and wpm < MIN_WORDS_PER_MIN:
+            parts.append(f"The transcript is sparse ({wpm:.0f} words/min), so findings may miss parts of the class.")
+        if share is not None and share > MAX_NON_ENGLISH_SHARE:
+            parts.append(
+                f"{share:.0%} of the transcript's words are not English (speech recognition may have used the wrong "
+                "language), so findings may be unreliable."
+            )
+    judge_note = next((w for w in a.warnings if w.startswith("The transcript looks unusable")), None)
+    if judge_note:
+        why = judge_note[len("The transcript looks unusable") :].split(";")[0].strip()
+        parts.append(
+            f"The judge found the transcript hard to follow{' ' + why if why else ''}; read the findings with care."
+        )
+    return " ".join(parts) or None
+
+
+def unusable_without_recording(a: Assessment) -> bool:
+    """No label is shown when the transcript could not really be read and there is no video to fall back on."""
+    if a.visual is not None and a.visual.n_frames:
+        return False
+    q = a.meta.get("transcript_quality") or {}
+    wrong_language = (q.get("non_english_share") or 0) > MAX_NON_ENGLISH_SHARE
+    judge_unusable = any(w.startswith("The transcript looks unusable") for w in a.warnings)
+    return wrong_language or judge_unusable
+
+
+def generic_note(a: Assessment) -> str | None:
+    g, n = a.meta.get("generic_observations"), a.meta.get("observations")
+    return f"{g} of {n} judge observations look generic (no speaker, time or quote)." if g and n else None
