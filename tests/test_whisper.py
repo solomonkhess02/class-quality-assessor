@@ -30,3 +30,14 @@ def test_parse_with_offset():
 
 def test_parse_empty():
     assert parse_whisper_json({}) == ([], "unknown")
+
+
+def test_invalid_utf8_from_whisper_is_replaced(tmp_path):
+    from cqa.transcript.whisper import read_whisper_json
+
+    # a Malayalam character cut in half by a token boundary: valid lead byte, missing continuation byte
+    raw = b'{"transcription": [{"offsets": {"from": 0, "to": 1000}, "text": "ok \xe0\xb4 ok"}]}'
+    path = tmp_path / "out.json"
+    path.write_bytes(raw)
+    data = read_whisper_json(path)
+    assert data["transcription"][0]["text"].startswith("ok ") and "\ufffd" in data["transcription"][0]["text"]

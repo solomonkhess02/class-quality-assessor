@@ -35,6 +35,11 @@ def parse_whisper_json(data: dict, offset_s: float = 0.0) -> tuple[list[Turn], s
     return turns, language
 
 
+def read_whisper_json(path: Path) -> dict:
+    """whisper-cli can split a multi-byte character across tokens and write invalid UTF-8; replace those bytes."""
+    return json.loads(path.read_bytes().decode("utf-8", errors="replace"))
+
+
 def transcribe(
     wav: Path,
     offset_s: float = 0.0,
@@ -53,7 +58,7 @@ def transcribe(
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:
             raise RuntimeError(f"whisper-cli failed (rc={r.returncode}): {r.stderr.strip()[-500:]}")
-        data = json.loads(out_base.with_suffix(".json").read_text(encoding="utf-8"))
+        data = read_whisper_json(out_base.with_suffix(".json"))
     return parse_whisper_json(data, offset_s)
 
 
