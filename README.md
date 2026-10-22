@@ -61,9 +61,14 @@ Trivial baselines in full ([eval/scorecard.md](eval/scorecard.md)):
 | Always "Average" | 2/10 | 8/10 | 1.00 | -0.20 | 50% |
 | Random label (expected) | 2.5/10 | 6/10 | 1.30 | +0.30 | 50% |
 
-**No-transcript path** (whisper instead of the Zoom VTT; EXPERIMENTS E22, E23):
-- Same label as the VTT path on 0 of 2 tested classes: Excellent B472 went from Good to Average, and weak B482 from Poor to Average. Without speakers, "no rapport" cannot be measured. The shorter windows also missed one class's homework.
-- Whisper took 2-6 minutes per class (133-357 s on 4 classes) for 18 minutes of audio on 2 threads.
+**No-transcript path** (whisper instead of the Zoom VTT; EXPERIMENTS E22, E23, E25):
+- Same label as the VTT path on 2 of 2 tested classes (B472 Good, B482 Poor), after three changes made from the first comparison (0 of 2): the class language is set explicitly instead of auto-detected, the closing window is 10 minutes like the judge's, and without speakers rapport comes from the judge's quoted fact instead of the warm-up measurement. Individual engagement still scores one point lower on both, because questions cannot be attributed to children. The changes were chosen after looking at these same two classes, so this is a sanity check, not an accuracy figure.
+
+| Whisper time per class (2 threads, English) | Audio transcribed | Time |
+|---|---|---|
+| Excellent B472 (56 min class) | 22 min (8 + 10 + 2 x 2) | 282 s |
+| Weak B482 (59 min class) | 22 min | 172 s |
+| Four classes with the earlier 18-min windows and auto language (E22) | 18 min | 133-357 s |
 
 **These numbers are optimistic.** The label rules were written from the organiser's notes on these same 10 classes, and with 2 classes per level a single class moves exact accuracy by 10 points. Treat them as a check that the method is sound, not as accuracy on unseen classes.
 
@@ -77,7 +82,7 @@ Trivial baselines in full ([eval/scorecard.md](eval/scorecard.md)):
 - Voice energy and tone are not measured, only the words. The 8x8 branded background is not checked yet.
 - The tutor-face check is indicative only. The screen-share tag agrees with hand labels on 74% of frames, so a missing face cannot yet be told apart from a screen share. It counts as a moderate problem, not a critical one.
 - Rapport is measured as a warm-up between the tutor's first greeting and the first lesson content. A tutor who builds rapport by questioning each child at the start, with no separate chat, is marked as having no rapport.
-- Without a speaker-labelled transcript (whisper path) the label is less reliable: on 2 tested classes it moved both towards Average. Speakers are not identified, so the warm-up and individual questioning cannot be measured and the "no rapport" problem can never fire. Only parts of the class are transcribed (first 8 min, last 6 min, two 2-min samples), so anything in between is missed: one class's homework, set 9 minutes before the end, was not seen. Whisper can also misdetect the language of a window (one class's opening was detected as Sinhala). Non-English classes (e.g. Malayalam) are not supported.
+- Without a speaker-labelled transcript (whisper path) the label is checked on only 2 classes (both matched the VTT path). Speakers are not identified, so the warm-up is not measured: rapport is judged from a quoted line instead (the report says which method was used), and individual questioning cannot be attributed to children, so engagement tends to score lower. Only parts of the class are transcribed (first 8 min, last 10 min, two 2-min samples); anything in between is missed. The class language must be chosen in the app (English or Malayalam); auto-detection was dropped after it labelled an English opening as Sinhala. Malayalam is not usable with the current speech model (E21).
 - The report shows no numeric confidence: on the labelled set it was as high on wrong labels as on right ones. Reliability notes take its place.
 
 ## Run locally (Windows)
