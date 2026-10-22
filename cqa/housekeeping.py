@@ -1,4 +1,5 @@
-"""Public-deployment housekeeping: one assessment at a time, and no media kept after it finishes."""
+"""Public-deployment housekeeping: one assessment at a time; after it finishes only the recording (for playback,
+until the purge) and the assessment JSON are kept."""
 
 from __future__ import annotations
 
@@ -6,6 +7,7 @@ import re
 import shutil
 import threading
 import time
+from collections.abc import Iterable
 from pathlib import Path
 
 from cqa.config import get_settings
@@ -24,9 +26,10 @@ def _remove(p: Path) -> None:
         p.unlink(missing_ok=True)
 
 
-def delete_run_files(video: Path | None, vtt: Path | None) -> None:
-    """Delete the inputs and everything derived from them (audio, frames, raw transcripts), keeping only the
-    assessment JSON (pseudonymised text and numbers). No-op unless DELETE_MEDIA_AFTER_RUN is set."""
+def delete_run_files(video: Path | None, vtt: Path | None, extra: Iterable[Path] = (), keep_video: bool = True) -> None:
+    """Delete the transcripts and everything derived from the inputs (audio, frames, raw transcripts), keeping only
+    the assessment JSON (pseudonymised text and numbers) and, with keep_video, the recording itself, which stays
+    for playback at evidence timestamps until purge_old removes it. No-op unless DELETE_MEDIA_AFTER_RUN is set."""
     s = get_settings()
     if not s.delete_media_after_run:
         return
@@ -38,9 +41,11 @@ def delete_run_files(video: Path | None, vtt: Path | None) -> None:
             for p in class_dir.iterdir():
                 if p not in keep:
                     _remove(p)
-    for p in (video, vtt):
-        if p is not None:
+    for p in (vtt, *extra):
+        if p is not None and p != video:
             p.unlink(missing_ok=True)
+    if video is not None and not keep_video:
+        video.unlink(missing_ok=True)
 
 
 def purge_old(now: float | None = None) -> int:

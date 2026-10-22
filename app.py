@@ -1,4 +1,4 @@
-"""Streamlit UI: upload a class recording (or a Google Drive link) and an optional Zoom VTT, get an assessment."""
+"""Streamlit UI: upload a class recording (or a Google Drive link) and an optional transcript, get an assessment."""
 
 from __future__ import annotations
 
@@ -8,12 +8,22 @@ import pandas as pd
 import streamlit as st
 
 from cqa.housekeeping import RUN_LOCK, delete_run_files, purge_old
-from cqa.ingest import download_drive, save_upload
+from cqa.ingest import VIDEO_TYPES, InputError, PreparedInputs, download_drive, prepare_inputs, save_upload
 from cqa.judge.llm import JudgeUnavailable, judge_available
 from cqa.judge.rubric import BY_ID
 from cqa.models import ensure_models, missing_models
 from cqa.pipeline import run
-from cqa.schemas import Assessment
+from cqa.report import (
+    NEXT_LEVEL,
+    cannot_check,
+    first_sentence,
+    key_reasons,
+    next_level_actions,
+    reliability_notes,
+    short,
+)
+from cqa.schemas import Assessment, Evidence, parse_ts
+from cqa.transcript.formats import TRANSCRIPT_TYPES
 
 LABEL_COLOURS = {"Excellent": "green", "Good": "blue", "Average": "orange", "Poor": "red"}
 JOINERS = {"invited": "yes", "not_invited": "no", "none": "no new joiners seen", "unknown": "unknown"}
@@ -22,6 +32,7 @@ UNAVAILABLE = (
     "Please try again later."
 )
 BUSY = "Another assessment is running on this server. Please try again in a few minutes."
+NOT_USED = "not used for the label"
 
 st.set_page_config(page_title="Class Quality Assessor", page_icon="♟️", layout="wide")
 st.title("Class Quality Assessor")
@@ -40,34 +51,39 @@ if missing_models():  # first start on a fresh host (Community Cloud); local and
 
 
 def get_inputs() -> tuple:
-    """Widget values (video upload, Drive link, VTT upload) and whether Run was pressed."""
-    src = st.radio("Recording", ["Upload mp4", "Google Drive link", "No recording (transcript only)"], horizontal=True)
+    """Widget values (video upload, Drive link, transcript upload) and whether Run was pressed."""
+    src = st.radio(
+        "Recording", ["Upload recording", "Google Drive link", "No recording (transcript only)"], horizontal=True
+    )
     video = drive_url = None
-    if src == "Upload mp4":
-        video = st.file_uploader("Class recording", type=["mp4", "mov", "mkv", "webm"])
+    if src == "Upload recording":
+        video = st.file_uploader("Class recording", type=[t.lstrip(".") for t in VIDEO_TYPES])
         st.caption("For recordings over about 200 MB, a Google Drive link is faster and more reliable than uploading.")
     elif src == "Google Drive link":
         drive_url = st.text_input("Google Drive share link (must be viewable by anyone with the link)")
-    vtt = st.file_uploader("Zoom transcript (.vtt, optional but recommended)", type=["vtt"])
-    if not vtt and src != "No recording (transcript only)":
+    transcript = st.file_uploader(
+        "Transcript (optional but recommended): Zoom .vtt, or .srt, or .txt with 'Name: text' lines",
+        type=list(TRANSCRIPT_TYPES),
+    )
+    if not transcript and src != "No recording (transcript only)":
         st.info(
             "No transcript given: the audio will be transcribed locally with whisper.cpp. This is much slower "
             "(roughly 10-30 minutes for a 50-minute class) and speakers are not identified, so engagement "
             "criteria are less reliable."
         )
-    return video, drive_url, vtt, st.button("Run assessment", type="primary")
+    return video, drive_url, transcript, st.button("Run assessment", type="primary")
 
 
-def save_inputs(video, drive_url: str | None, vtt) -> tuple[Path | None, Path | None]:
-    video_path = vtt_path = None
+def save_inputs(video, drive_url: str | None, transcript) -> tuple[Path | None, Path | None]:
+    video_path = transcript_path = None
+    if transcript is not None:
+        transcript_path = save_upload(transcript, Path(transcript.name).suffix.lower() or ".vtt")
     if video is not None:
         video_path = save_upload(video, Path(video.name).suffix.lower() or ".mp4")
-    elif drive_url:
+    elif drive_url and drive_url.strip():
         with st.spinner("Downloading from Google Drive"):
-            video_path = download_drive(drive_url.strip())
-    if vtt is not None:
-        vtt_path = save_upload(vtt, ".vtt")
-    return video_path, vtt_path
+            video_path = download_drive(drive_url)
+    return video_path, transcript_path
 
 
 def assess(video: Path | None, vtt: Path | None) -> Assessment | None:
@@ -88,26 +104,64 @@ def assess(video: Path | None, vtt: Path | None) -> Assessment | None:
             return None
         except Exception as e:  # show the failure in the UI instead of a stack trace
             status.update(label="Assessment failed", state="error")
-            st.error(f"{type(e).__name__}: {e}")
+            st.error(f"The assessment failed ({type(e).__name__}): {str(e)[:300]}")
             return None
         status.update(label="Assessment complete", state="complete", expanded=False)
     return assessment
 
 
-def show(a: Assessment) -> None:
-    c1, c2, c3, c4 = st.columns(4)
+# --- report ---
+
+
+def playable_video() -> Path | None:
+    p = st.session_state.get("video_path")
+    return p if p is not None and Path(p).exists() else None
+
+
+def evidence_line(e: Evidence, key: str, prefix: str = "") -> None:
+    """One verified quote, with a button that plays the recording from its timestamp."""
+    video = playable_video()
+    text = f"{prefix}`{e.timestamp}` **{e.speaker}**: “{short(e.quote)}”"
+    if video is None:
+        st.markdown(f"- {text}")
+        return
+    c1, c2 = st.columns([6, 1])
+    c1.markdown(f"- {text}")
+    if c2.button(f"▶ {e.timestamp}", key=f"play-{key}", help="Play the recording from this moment"):
+        st.session_state["play"] = key
+    if st.session_state.get("play") == key:
+        st.video(str(video), start_time=parse_ts(e.timestamp))
+
+
+def show_header(a: Assessment) -> None:
+    c1, c2 = st.columns([1, 5])
     with c1:
         st.markdown("**Label**")
         st.badge(a.label, color=LABEL_COLOURS[a.label])
-    c2.metric("Confidence", f"{a.confidence:.0%}")
-    c3.metric("Problems (criteria scored ≤ 2)", a.meta.get("problems", "-"))
-    c4.metric("Weighted mean (1-4)", "-" if a.weighted_score is None else f"{a.weighted_score:.2f}")
-    if a.summary:
-        st.write(a.summary)
-    for w in a.warnings:
-        st.warning(w)
+    with c2:
+        if a.summary:
+            st.markdown(f"**{first_sentence(a.summary)}**")
 
+
+def show_reasons(a: Assessment) -> None:
+    st.subheader("Key reasons")
+    reasons = key_reasons(a)
+    if not reasons:
+        st.write("No single finding stands out.")
+    for i, r in enumerate(reasons):
+        st.markdown(f"{i + 1}. {'⚠️' if r.problem else '✅'} {r.text}")
+        if r.evidence is not None:
+            evidence_line(r.evidence, f"reason-{i}")
+    st.subheader("What would move this class up a level" if a.label in NEXT_LEVEL else "What would keep it there")
+    if a.label in NEXT_LEVEL:
+        st.caption(f"From {a.label} towards {NEXT_LEVEL[a.label]}.")
+    for s in next_level_actions(a):
+        st.markdown(f"- {s}")
+
+
+def show_criteria(a: Assessment) -> None:
     st.subheader("Criteria")
+    excluded = set(a.meta.get("label_excluded", []))
     rows = []
     for c in a.criteria:
         crit = BY_ID.get(c.id)
@@ -115,8 +169,7 @@ def show(a: Assessment) -> None:
             {
                 "criterion": crit.name if crit else c.id,
                 "score (1-4)": "insufficient evidence" if c.insufficient_evidence or c.score is None else c.score,
-                "problem": "yes" if (c.score is not None and not c.insufficient_evidence and c.score <= 2) else "",
-                "weight": crit.weight if crit else None,
+                "used for label": NOT_USED if c.id in excluded else "yes",
                 "verified quotes": len(c.evidence),
                 "scored by": "video metrics" if crit and crit.scored_by == "code" else "LLM judge",
             }
@@ -126,49 +179,71 @@ def show(a: Assessment) -> None:
     for c in a.criteria:
         crit = BY_ID.get(c.id)
         score = "insufficient evidence" if c.insufficient_evidence or c.score is None else f"{c.score}/4"
-        with st.expander(f"{crit.name if crit else c.id}: {score}"):
+        tag = f" ({NOT_USED})" if c.id in excluded else ""
+        with st.expander(f"{crit.name if crit else c.id}: {score}{tag}"):
+            if c.id in excluded:
+                st.caption(f"Shown for information, {NOT_USED}: its score barely varies between classes (D15).")
             for o in c.observations:
                 st.markdown(f"- {o}")
             if c.evidence:
                 st.markdown("**Evidence (verified against the transcript)**")
-                for e in c.evidence:
-                    st.markdown(f"- `{e.timestamp}` **{e.speaker}**: “{e.quote}”")
+                for i, e in enumerate(c.evidence):
+                    evidence_line(e, f"{c.id}-{i}")
             if c.improvement:
                 st.markdown(f"**Improvement:** {c.improvement}")
 
-    if a.key_facts:
-        kf = a.key_facts
-        st.subheader("Key facts")
-        facts = pd.DataFrame(
-            [
-                {
-                    "fact": "Homework assigned",
-                    "value": f"yes: {kf.homework_what}" if kf.homework_assigned == "yes" else kf.homework_assigned,
-                },
-                {"fact": "New joiners invited to introduce themselves", "value": JOINERS[kf.new_joiners]},
-                {"fact": "Children greeted by name before teaching", "value": str(kf.children_greeted_by_name)},
-                {"fact": "Recap at the end", "value": kf.recap_present},
-                {
-                    "fact": "Warm-up before content (rapport)",
-                    "value": "unknown (content start not found)"
-                    if kf.warm_up_min is None
-                    else f"{kf.warm_up_min:g} min, {kf.warm_up_students} children spoke: {kf.rapport_before_content}",
-                },
-            ]
-        )
-        st.dataframe(facts, hide_index=True, width="stretch")
-        if kf.evidence:
-            with st.expander("Key fact evidence"):
-                for e in kf.evidence:
-                    st.markdown(f"- {e.fact}: `{e.timestamp}` **{e.speaker}**: “{e.quote}”")
 
+def show_key_facts(a: Assessment) -> None:
+    if not a.key_facts:
+        return
+    kf = a.key_facts
+    st.subheader("Key facts")
+    facts = pd.DataFrame(
+        [
+            {
+                "fact": "Homework assigned",
+                "value": f"yes: {kf.homework_what}" if kf.homework_assigned == "yes" else kf.homework_assigned,
+            },
+            {"fact": "New joiners invited to introduce themselves", "value": JOINERS[kf.new_joiners]},
+            {"fact": "Children greeted by name before teaching", "value": str(kf.children_greeted_by_name)},
+            {"fact": "Recap at the end", "value": kf.recap_present},
+            {
+                "fact": "Warm-up before content (rapport)",
+                "value": "unknown (content start not found)"
+                if kf.warm_up_min is None
+                else f"{kf.warm_up_min:g} min, {kf.warm_up_students} children spoke: {kf.rapport_before_content}",
+            },
+        ]
+    )
+    st.dataframe(facts, hide_index=True, width="stretch")
+    if kf.evidence:
+        with st.expander("Key fact evidence"):
+            for i, e in enumerate(kf.evidence):
+                evidence_line(e, f"fact-{i}", prefix=f"{e.fact}: ")
+
+
+def show_limits(a: Assessment) -> None:
+    inputs = a.meta.get("input", {})
+    speakers = a.meta.get("transcript_source") != "whisper" and inputs.get("speakers_identified", True)
+    col_c, col_r = st.columns(2)
+    with col_c:
+        st.subheader("What this assessment could not check")
+        for s in cannot_check(a, speakers):
+            st.markdown(f"- {s}")
+    with col_r:
+        st.subheader("Reliability notes")
+        for s in reliability_notes(a, inputs):
+            st.markdown(f"- {s}")
+
+
+def show_measurements(a: Assessment) -> None:
     col_s, col_i = st.columns(2)
     with col_s:
         st.subheader("Strengths")
         for s in a.strengths:
             st.markdown(f"- {s}")
     with col_i:
-        st.subheader("Improvements")
+        st.subheader("All improvements")
         for s in a.improvements:
             st.markdown(f"- {s}")
 
@@ -209,32 +284,60 @@ def show(a: Assessment) -> None:
         st.json({k: v for k, v in a.meta.items() if k != "facts"})
     st.download_button(
         "Download assessment (JSON)",
-        a.model_dump_json(indent=2),
+        a.model_dump_json(indent=2, exclude={"confidence"}),
         file_name="assessment.json",
         mime="application/json",
     )
 
 
-def run_once(video, drive_url: str | None, vtt) -> None:
-    """One assessment at a time per server (2 vCPUs, one API balance); inputs and media deleted afterwards."""
+def show(a: Assessment) -> None:
+    show_header(a)
+    show_reasons(a)
+    show_criteria(a)
+    show_limits(a)
+    show_key_facts(a)
+    show_measurements(a)
+
+
+def run_once(video, drive_url: str | None, transcript) -> None:
+    """One assessment at a time per server (2 vCPUs, one API balance). Transcripts and derived media are deleted
+    afterwards; the recording stays for playback until the cache purge."""
     if not RUN_LOCK.acquire(blocking=False):
         st.warning(BUSY)
         return
-    video_path = vtt_path = None
+    video_path = transcript_path = None
+    prep: PreparedInputs | None = None
+    assessment = None
     try:
         purge_old()
-        video_path, vtt_path = save_inputs(video, drive_url, vtt)
-        if video_path is None and vtt_path is None:
-            st.error("Please provide a recording, a Drive link or a VTT transcript.")
+        video_path, transcript_path = save_inputs(video, drive_url, transcript)
+        if video_path is None and transcript_path is None:
+            st.error("Please provide a recording, a Drive link or a transcript.")
             return
-        st.session_state["assessment"] = assess(video_path, vtt_path)
+        prep = prepare_inputs(video_path, transcript_path)
+        for note in prep.notes:
+            st.info(note)
+        assessment = assess(prep.video, prep.vtt)
+        if assessment is not None:
+            assessment.meta["input"] = {
+                "transcript_format": prep.transcript_format,
+                "speakers_identified": prep.speakers_identified,
+                "duration_s": prep.duration_s,
+                "notes": prep.notes,
+            }
+        st.session_state["assessment"] = assessment
+        st.session_state["video_path"] = video_path if assessment is not None else None
+        st.session_state.pop("play", None)
+    except InputError as e:
+        st.error(str(e))
     finally:
-        delete_run_files(video_path, vtt_path)
+        extra = [p for p in (transcript_path, *(prep.temp_files if prep else [])) if p is not None]
+        delete_run_files(video_path, prep.vtt if prep else None, extra, keep_video=assessment is not None)
         RUN_LOCK.release()
 
 
-video_up, drive_url, vtt_up, go = get_inputs()
+video_up, drive_url, transcript_up, go = get_inputs()
 if go:
-    run_once(video_up, drive_url, vtt_up)
+    run_once(video_up, drive_url, transcript_up)
 if st.session_state.get("assessment"):
     show(st.session_state["assessment"])

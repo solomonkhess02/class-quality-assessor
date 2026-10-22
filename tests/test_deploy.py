@@ -107,10 +107,23 @@ def make_class(cache: Path) -> tuple[Path, Path]:
     return video, cdir
 
 
-def test_delete_run_files_keeps_only_assessment(settings):
+def test_delete_run_files_keeps_only_assessment_and_video(settings):
     s = settings(DELETE_MEDIA_AFTER_RUN="true")
     video, cdir = make_class(s.cache_dir)
-    housekeeping.delete_run_files(video, None)
+    transcript = s.cache_dir / "uploads" / "t.srt"
+    normalised = s.cache_dir / "uploads" / "t_norm.vtt"
+    transcript.write_text("synthetic")
+    normalised.write_text("WEBVTT\n")
+    housekeeping.delete_run_files(video, normalised, [transcript])
+    assert video.exists()  # kept for playback at evidence timestamps until the purge
+    assert not transcript.exists() and not normalised.exists()
+    assert sorted(p.name for p in cdir.iterdir()) == ["assessment.json"]
+
+
+def test_delete_run_files_drops_video_after_failed_run(settings):
+    s = settings(DELETE_MEDIA_AFTER_RUN="true")
+    video, cdir = make_class(s.cache_dir)
+    housekeeping.delete_run_files(video, None, keep_video=False)
     assert not video.exists()
     assert sorted(p.name for p in cdir.iterdir()) == ["assessment.json"]
 

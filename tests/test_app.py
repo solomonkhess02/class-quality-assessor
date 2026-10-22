@@ -36,7 +36,7 @@ def synthetic_assessment() -> Assessment:
         improvements=["Assign homework."],
         warnings=["Synthetic warning."],
         visual=VisualReport(n_frames=10, pct_face=55, pct_dark=0, pct_black=0, pct_frozen=0, median_blur=100),
-        meta={"problems": 1, "transcript_source": "vtt"},
+        meta={"problems": 1, "transcript_source": "vtt", "label_excluded": ["communication"]},
     )
 
 
@@ -51,9 +51,45 @@ def test_results_render():
     at.session_state["assessment"] = synthetic_assessment()
     at.run()
     assert not at.exception
-    assert any("Synthetic warning." in w.value for w in at.warning)
+    headers = [h.value for h in at.subheader]
+    for h in ("Key reasons", "What would move this class up a level", "Criteria", "Reliability notes",
+              "What this assessment could not check"):  # fmt: skip
+        assert h in headers
+    assert headers.index("Key reasons") < headers.index("Criteria") < headers.index("Reliability notes")
+    text = " ".join(m.value for m in at.markdown)
+    assert "Synthetic warning." in text and "8x8 branded background" in text
+    assert "Confidence" not in text and not any(m.label == "Confidence" for m in at.metric)
+    assert any("not used for the label" in e.label for e in at.expander)
     assert len(at.expander) >= 3
-    assert any(m.label == "Confidence" and m.value == "80%" for m in at.metric)
+    assert not [b for b in at.button if b.label.startswith("▶")]  # no recording kept, so nothing to play
+
+
+def test_play_at_timestamp(tmp_path):
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"synthetic")
+    at = AppTest.from_file(APP, default_timeout=30)
+    at.session_state["assessment"] = synthetic_assessment()
+    at.session_state["video_path"] = video
+    at.run()
+    play = [b for b in at.button if b.label == "▶ 00:00:40"]
+    assert play
+    play[0].click().run()
+    assert not at.exception
+    assert at.session_state["play"]
+
+
+def test_report_sections():
+    from cqa import report
+
+    a = synthetic_assessment()
+    a.meta.update({"label_excluded": ["communication"], "moderate": [], "critical": []})
+    reasons = report.key_reasons(a)
+    assert reasons and not reasons[0].problem and reasons[0].evidence.quote == "hello S1"
+    assert report.next_level_actions(a)[0] == "Assign homework."
+    assert any("not identified" in s for s in report.cannot_check(a, speakers_identified=False))
+    notes = report.reliability_notes(a, {"transcript_format": "srt", "speakers_identified": False})
+    assert notes[0] == "Transcript: SRT subtitles uploaded with the class; speakers not identified."
+    assert report.first_sentence("One. Two.") == "One."
 
 
 def test_save_upload_dedupes_by_hash(monkeypatch, tmp_path):
