@@ -43,6 +43,7 @@ class Settings(BaseModel):
     asr_closing_min: float = 10.0
     asr_middle_windows: int = 3
     asr_middle_min: float = 3.0
+    whisper_role_tagging: bool = False  # LLM tags TUTOR / STUDENT per whisper segment; on once validated (P2.2)
 
     # Data and cache
     data_dir: Path = Path("data")

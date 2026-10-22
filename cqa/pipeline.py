@@ -17,6 +17,7 @@ from cqa.schemas import Assessment, JudgeOutput, Transcript, VisualReport
 from cqa.scoring import assess
 from cqa.transcript.privacy import anonymise
 from cqa.transcript.quality import check_quality
+from cqa.transcript.role_tagging import tag_roles
 from cqa.transcript.roles import assign_roles
 from cqa.transcript.vtt import parse_vtt
 from cqa.transcript.whisper import configured_windows, transcribe_media
@@ -98,6 +99,10 @@ def run(
                 f"The Zoom transcript looks unusable ({why}) and there is no recording to fall back on."
             )
     transcript, _mapping = anonymise(raw)
+    role_meta: dict = {}
+    if transcript.source == "whisper" and s.whisper_role_tagging:
+        progress("transcript", "Labelling tutor and student lines")
+        transcript, role_meta = tag_roles(transcript, run_index=run_index)  # anonymised text only
     if not transcript.duration_s and video is not None:
         transcript = transcript.model_copy(update={"duration_s": media.probe_duration(video)})
     lap("transcript")
@@ -118,6 +123,8 @@ def run(
     if not quality.usable:
         warnings.append(f"Transcript quality is low: {'; '.join(quality.reasons)}.")
     meta["transcript_quality"] = asdict(quality)
+    if role_meta:
+        meta["role_tagging"] = {k: role_meta[k] for k in ("role_lines_missing", "latency_s") if k in role_meta}
     assessment = assess(judged, visual, stats, transcript.source, warnings, meta)
     assessment.meta["timings_s"] = timings
     (cdir / (f"assessment_r{run_index}.json" if run_index else "assessment.json")).write_text(

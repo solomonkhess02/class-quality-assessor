@@ -52,3 +52,31 @@ def test_judge_is_told_which_windows_were_transcribed():
     note = windows_note(t)
     assert "00:00:00-00:12:00" in note and "00:40:00-00:50:00" in note
     assert windows_note(Transcript(source="vtt")) == ""
+
+
+def test_role_tagging_sets_roles_and_leaves_skipped_lines_unknown(monkeypatch):
+    from cqa.transcript import role_tagging as rt
+
+    def fake_call_json(messages, schema, run_index=0, temperature=None):
+        assert "[NAME]" in messages[1]["content"]  # only anonymised text is sent
+        return schema(roles=[{"i": 0, "role": "tutor"}, {"i": 1, "role": "student"}]), {"latency_s": 0.1}
+
+    monkeypatch.setattr(rt, "call_json", fake_call_json)
+    t = Transcript(source="whisper", turns=[
+        Turn(start_s=0, end_s=5, speaker="UNKNOWN", text="Hello [NAME], what is a fork?"),
+        Turn(start_s=6, end_s=8, speaker="UNKNOWN", text="Two pieces attacked"),
+        Turn(start_s=9, end_s=12, speaker="UNKNOWN", text="Very good"),
+    ])  # fmt: skip
+    tagged, meta = rt.tag_roles(t)
+    assert [x.role for x in tagged.turns] == ["tutor", "student", "unknown"]
+    assert [x.speaker for x in tagged.turns] == ["TUTOR", "STUDENT", "UNKNOWN"]
+    assert meta["role_lines_missing"] == 1
+
+
+def test_reference_roles_use_the_most_overlapping_vtt_turn():
+    from cqa.transcript.role_tagging import reference_roles
+
+    vtt = [Turn(start_s=0, end_s=10, speaker="T", role="tutor", text="a"),
+           Turn(start_s=10, end_s=14, speaker="S", role="student", text="b")]  # fmt: skip
+    segs = [Turn(start_s=a, end_s=b, speaker="UNKNOWN", text="x") for a, b in [(1, 9), (9, 14), (20, 25)]]
+    assert reference_roles(segs, vtt) == ["tutor", "student", None]
