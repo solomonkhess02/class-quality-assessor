@@ -179,7 +179,7 @@ def speakers_known(transcript: Transcript) -> bool:
     return any(t.role == "tutor" for t in transcript.turns)
 
 
-# E24, fixed before results: the warm-up thresholds of A3c (DECISIONS D20), asked of the judge when code cannot
+# E25, fixed before results: the warm-up thresholds of A3c (DECISIONS D20), asked of the judge when code cannot
 # measure the warm-up because speakers are not identified. Only in the user message, so the VTT path is unchanged.
 RAPPORT_RULE = (
     "Speakers are not identified in this transcript, so the warm-up cannot be measured. Also report "

@@ -132,7 +132,7 @@ def rapport_from_warm_up(minutes: float, students: int) -> str:
 def judged_rapport_fact(
     state: str, evidence: list[FactEvidence], content_start_s: float | None, transcript: Transcript
 ) -> str:
-    """E24, guards fixed before results (homework-style: unknown unless the transcript can support the claim).
+    """E25, guards fixed before results (homework-style: unknown unless the transcript can support the claim).
     The judge's rapport fact counts only with a verified quote of the same value (already checked) that lies in
     the opening, no later than the verified content start. A "no" also needs a verified content start inside the
     transcribed opening window: "straight into content" must be visible."""
@@ -172,7 +172,7 @@ def verify_key_facts(
     starts = [parse_ts(e.timestamp) for e in kept if e.fact == "content_start"]
     judged_rapport = updates.get("rapport_before_content", kf.rapport_before_content)  # after the quote check
     measured = warm_up(transcript, min(starts)) if starts else None
-    if not speakers_known(transcript):  # E24: no speakers, no warm-up to measure: the judge's guarded fact
+    if not speakers_known(transcript):  # E25: no speakers, no warm-up to measure: the judge's guarded fact
         rapport = judged_rapport_fact(judged_rapport, kept, min(starts) if starts else None, transcript)
         updates.update(content_start=format_ts(min(starts)) if starts else "", warm_up_min=None,
                        warm_up_students=None, rapport_before_content=rapport,

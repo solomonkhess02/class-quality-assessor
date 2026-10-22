@@ -67,7 +67,7 @@ def get_inputs() -> tuple:
         "Transcript (optional but recommended): Zoom .vtt, or .srt, or .txt with 'Name: text' lines",
         type=list(TRANSCRIPT_TYPES),
     )
-    st.selectbox(  # whisper language when no transcript is given (E24: no auto-detection)
+    st.selectbox(  # whisper language when no transcript is given (E25: no auto-detection)
         "Class language", ["en", "ml"], format_func={"en": "English", "ml": "Malayalam"}.get, key="class_language"
     )
     if not transcript and src != "No recording (transcript only)":

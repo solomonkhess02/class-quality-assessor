@@ -1,4 +1,4 @@
-"""No-VTT path (E24): explicit language, language-keyed whisper cache, rapport from the judge's guarded fact when
+"""No-VTT path (E25): explicit language, language-keyed whisper cache, rapport from the judge's guarded fact when
 speakers are unknown. Synthetic transcripts only."""
 
 from cqa.schemas import FactEvidence, KeyFacts, Transcript, Turn
