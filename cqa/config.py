@@ -48,6 +48,9 @@ class Settings(BaseModel):
     # Data and cache
     data_dir: Path = Path("data")
     cache_dir: Path = Path(".cache")
+    # Public deployment: delete media after each assessment and purge old cache entries (off locally)
+    delete_media_after_run: bool = False
+    cache_max_age_h: float = 0.0  # 0 = never purge
 
     # Pipeline
     frame_interval_sec: float = 30.0

@@ -73,5 +73,5 @@ tests/                         synthetic fixtures only
 ## Phases
 1. Base (now): VTT path end to end, whisper wrapper, OpenCV visuals, DeepSeek judge, scoring, eval script, minimal Streamlit.
 2. Robustness: whisper path with LLM role tagging and opening/closing/middle windows; 8x8 background check (reference-image matching, local); transcript-quality detection; optional audio energy; optional nearest-labelled-class examples.
-   Backlog: if DeepSeek returns insufficient balance (402) or an auth error (401/403), the app shows a clear "assessment service unavailable" message instead of failing (A3c run hit 402).
+   Done (deploy): a missing key or a 401/402/403 from DeepSeek raises JudgeUnavailable (cqa/judge/llm.py); the app shows "assessment service unavailable" instead of failing.
 3. Ship: Dockerfile (whisper.cpp compiled, model baked in), HF Space deploy, README, 300-word write-up, redacted AI logs.

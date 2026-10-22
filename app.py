@@ -7,13 +7,20 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from cqa.housekeeping import RUN_LOCK, delete_run_files, purge_old
 from cqa.ingest import download_drive, save_upload
+from cqa.judge.llm import JudgeUnavailable, judge_available
 from cqa.judge.rubric import BY_ID
 from cqa.pipeline import run
 from cqa.schemas import Assessment
 
 LABEL_COLOURS = {"Excellent": "green", "Good": "blue", "Average": "orange", "Poor": "red"}
 JOINERS = {"invited": "yes", "not_invited": "no", "none": "no new joiners seen", "unknown": "unknown"}
+UNAVAILABLE = (
+    "Assessment service unavailable: the LLM judge is not configured or its account cannot be used right now. "
+    "Please try again later."
+)
+BUSY = "Another assessment is running on this server. Please try again in a few minutes."
 
 st.set_page_config(page_title="Class Quality Assessor", page_icon="♟️", layout="wide")
 st.title("Class Quality Assessor")
@@ -21,9 +28,12 @@ st.caption(
     "Assesses a recorded 8x8 online chess class. Video and audio are processed on this server; only "
     "pseudonymised transcript text and numeric metrics are sent to the LLM judge."
 )
+if not judge_available():
+    st.error(UNAVAILABLE)
 
 
-def get_inputs() -> tuple[Path | None, Path | None, bool]:
+def get_inputs() -> tuple:
+    """Widget values (video upload, Drive link, VTT upload) and whether Run was pressed."""
     src = st.radio("Recording", ["Upload mp4", "Google Drive link", "No recording (transcript only)"], horizontal=True)
     video = drive_url = None
     if src == "Upload mp4":
@@ -37,9 +47,10 @@ def get_inputs() -> tuple[Path | None, Path | None, bool]:
             "(roughly 10-30 minutes for a 50-minute class) and speakers are not identified, so engagement "
             "criteria are less reliable."
         )
-    if not st.button("Run assessment", type="primary"):
-        return None, None, False
+    return video, drive_url, vtt, st.button("Run assessment", type="primary")
 
+
+def save_inputs(video, drive_url: str | None, vtt) -> tuple[Path | None, Path | None]:
     video_path = vtt_path = None
     if video is not None:
         video_path = save_upload(video, Path(video.name).suffix.lower() or ".mp4")
@@ -48,13 +59,13 @@ def get_inputs() -> tuple[Path | None, Path | None, bool]:
             video_path = download_drive(drive_url.strip())
     if vtt is not None:
         vtt_path = save_upload(vtt, ".vtt")
-    if video_path is None and vtt_path is None:
-        st.error("Please provide a recording, a Drive link or a VTT transcript.")
-        return None, None, False
-    return video_path, vtt_path, True
+    return video_path, vtt_path
 
 
 def assess(video: Path | None, vtt: Path | None) -> Assessment | None:
+    if not judge_available():  # fail before spending minutes on frames
+        st.error(UNAVAILABLE)
+        return None
     with st.status("Assessing the class...", expanded=True) as status:
 
         def progress(stage: str, message: str) -> None:
@@ -63,6 +74,10 @@ def assess(video: Path | None, vtt: Path | None) -> Assessment | None:
 
         try:
             assessment, _ = run(video, vtt, progress=progress)
+        except JudgeUnavailable:
+            status.update(label="Assessment service unavailable", state="error")
+            st.error(UNAVAILABLE)
+            return None
         except Exception as e:  # show the failure in the UI instead of a stack trace
             status.update(label="Assessment failed", state="error")
             st.error(f"{type(e).__name__}: {e}")
@@ -192,8 +207,26 @@ def show(a: Assessment) -> None:
     )
 
 
-video_path, vtt_path, go = get_inputs()
+def run_once(video, drive_url: str | None, vtt) -> None:
+    """One assessment at a time per server (2 vCPUs, one API balance); inputs and media deleted afterwards."""
+    if not RUN_LOCK.acquire(blocking=False):
+        st.warning(BUSY)
+        return
+    video_path = vtt_path = None
+    try:
+        purge_old()
+        video_path, vtt_path = save_inputs(video, drive_url, vtt)
+        if video_path is None and vtt_path is None:
+            st.error("Please provide a recording, a Drive link or a VTT transcript.")
+            return
+        st.session_state["assessment"] = assess(video_path, vtt_path)
+    finally:
+        delete_run_files(video_path, vtt_path)
+        RUN_LOCK.release()
+
+
+video_up, drive_url, vtt_up, go = get_inputs()
 if go:
-    st.session_state["assessment"] = assess(video_path, vtt_path)
+    run_once(video_up, drive_url, vtt_up)
 if st.session_state.get("assessment"):
     show(st.session_state["assessment"])

@@ -18,6 +18,16 @@ from cqa.config import get_settings
 T = TypeVar("T", bound=BaseModel)
 MAX_REASKS = 2
 TRANSIENT = (openai.APIConnectionError, openai.APITimeoutError, openai.RateLimitError, openai.InternalServerError)
+UNAVAILABLE_STATUS = (401, 402, 403)  # bad key, insufficient balance, forbidden: retrying cannot help
+
+
+class JudgeUnavailable(RuntimeError):
+    """The LLM judge cannot be used (no API key, or the provider refused the account)."""
+
+
+def judge_available() -> bool:
+    key = get_settings().deepseek_api_key.get_secret_value().strip()
+    return bool(key) and not key.startswith("your-")
 
 
 def _client() -> OpenAI:
@@ -74,13 +84,22 @@ def call_json(
         cached = json.loads(cache_file.read_text(encoding="utf-8"))
         return schema.model_validate_json(cached["content"]), {**cached["meta"], "cached": True}
 
+    if not judge_available():
+        raise JudgeUnavailable("Assessment service unavailable: no DeepSeek API key is configured.")
     client = _client()
     convo = list(messages)
     t0 = time.perf_counter()
     usage = {"prompt_tokens": 0, "completion_tokens": 0}
     last_error = ""
     for attempt in range(1, MAX_REASKS + 2):
-        resp = _create(client, convo, temperature)
+        try:
+            resp = _create(client, convo, temperature)
+        except openai.APIStatusError as e:
+            if e.status_code in UNAVAILABLE_STATUS:
+                raise JudgeUnavailable(
+                    f"Assessment service unavailable: the LLM provider refused the request (HTTP {e.status_code})."
+                ) from None
+            raise
         if resp.usage:
             usage["prompt_tokens"] += resp.usage.prompt_tokens
             usage["completion_tokens"] += resp.usage.completion_tokens
