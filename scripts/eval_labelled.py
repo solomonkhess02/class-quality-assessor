@@ -163,6 +163,13 @@ def prompt_hash() -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:12]
 
 
+def warm_up_cell(a: Assessment) -> str:
+    kf = a.key_facts
+    if kf is None or kf.warm_up_min is None:
+        return "?"
+    return f"{kf.warm_up_min:g}/{kf.warm_up_students}"
+
+
 def with_agreement(r: dict, per_run: list[dict]) -> tuple[float | None, float | None]:
     """Mean confidence on correct / wrong labels, where a class's confidence is the mean of the app's confidence
     and run agreement (share of runs giving that class its most common label)."""
@@ -275,14 +282,16 @@ def scorecard(per_run: list[dict], truth_n: dict, args, gate_line: str) -> list[
 
     lines += ["", "## Per class", "",
               "| class | true | label per run | score/100 per run | problems per run | problems found (run 0) "
-              "| confidence per run |", "|---|---|---|---|---|---|---|"]  # fmt: skip
+              "| warm-up min / students per run | confidence per run |",
+              "|---|---|---|---|---|---|---|---|"]  # fmt: skip
     for k in sorted(true):
         labels = " / ".join(r["pred"][k] for r in per_run)
         scores = " / ".join(str(r["assessed"][k].meta.get("score_100", "-")) for r in per_run)
         probs = " / ".join(f"{r['problems'][k]:g}" for r in per_run)
         found = "; ".join(per_run[0]["assessed"][k].meta.get("problems_found", [])) or "-"
         confs = " / ".join(f"{r['assessed'][k].confidence:.2f}" for r in per_run)
-        lines.append(f"| {k} | {true[k]} | {labels} | {scores} | {probs} | {found} | {confs} |")
+        warm = " / ".join(warm_up_cell(r["assessed"][k]) for r in per_run)
+        lines.append(f"| {k} | {true[k]} | {labels} | {scores} | {probs} | {found} | {warm} | {confs} |")
     return lines
 
 

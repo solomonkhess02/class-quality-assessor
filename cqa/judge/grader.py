@@ -61,7 +61,9 @@ def report_lines(a: Assessment) -> list[str]:
         )
         lines.append(
             f"Key facts: homework assigned: {homework}; new joiners: {kf.new_joiners}; children greeted by name "
-            f"before teaching: {kf.children_greeted_by_name}; closing recap: {kf.recap_present}"
+            f"before teaching: {kf.children_greeted_by_name}; closing recap: {kf.recap_present}; warm-up before "
+            f"content: {kf.warm_up_min} min with {kf.warm_up_students} children speaking (rapport: "
+            f"{kf.rapport_before_content})"
         )
     lines += [f"Warning: {w}" for w in a.warnings]
     return lines

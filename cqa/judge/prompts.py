@@ -57,14 +57,21 @@ EVIDENCE_FIRST_ORDER = ["id", "observations", "evidence", "improvement", "insuff
 
 
 FACTS_DRIVE_RULE = (
-    ", rapport_before_content (the tutor chats personally with the children, beyond a hello, before teaching "
-    "starts) and each_child_asked_individually (every child present is asked at least one question individually or "
-    "by name)"
+    ", each_child_asked_individually (every child present is asked at least one question individually or by name)"
+)
+CONTENT_START_RULE = (
+    "\n   content_start is the timestamp of the first line of lesson content (revision, a puzzle or a new topic);"
+    '\n   quote that line in key_facts.evidence with fact "content_start" and "value": "yes", or leave it "" if'
+    "\n   you cannot tell."
 )
 
 
 def _extra_facts_rule() -> str:
     return FACTS_DRIVE_RULE if get_settings().facts_drive else ""
+
+
+def _content_start_rule() -> str:
+    return CONTENT_START_RULE if get_settings().facts_drive else ""
 
 
 def example() -> dict:
@@ -74,12 +81,12 @@ def example() -> dict:
     ex = EXAMPLE
     if s.judge_evidence_first:
         ex = {**ex, "criteria": [{k: c[k] for k in EVIDENCE_FIRST_ORDER if k in c} for c in ex["criteria"]]}
-    if s.facts_drive:  # ablation A2: two more yes/no facts, each true one with a quote
+    if s.facts_drive:  # ablation A2 / A3c: each-child fact and the quoted start of lesson content
         kf = {k: v for k, v in ex["key_facts"].items() if k != "evidence"}
-        rapport = {"fact": "rapport_before_content", "value": "yes", "timestamp": "00:00:42", "speaker": "TUTOR",
-                   "quote": "S1, how was your exam yesterday?"}  # fmt: skip
-        kf.update(rapport_before_content="yes", each_child_asked_individually="unknown")
-        ex = {**ex, "key_facts": {**kf, "evidence": [*ex["key_facts"]["evidence"], rapport]}}
+        start = {"fact": "content_start", "value": "yes", "timestamp": "00:03:10", "speaker": "TUTOR",
+                 "quote": "okay let's start with the puzzle"}  # fmt: skip
+        kf.update(each_child_asked_individually="unknown", content_start="00:03:10")
+        ex = {**ex, "key_facts": {**kf, "evidence": [*ex["key_facts"]["evidence"], start]}}
     return ex
 
 
@@ -129,7 +136,7 @@ Rules:
    recap_present (the tutor summarises what was learned near the end){_extra_facts_rule()} are each "yes", "no" or
    "unknown". new_joiners is "invited" (a new child is asked to introduce themselves), "not_invited" (a new child
    joins and is not), "none" (no new child is apparent) or "unknown". children_greeted_by_name counts distinct
-   children greeted or chatted with by name before teaching starts.
+   children greeted or chatted with by name before teaching starts.{_content_start_rule()}
    Every "yes" or "invited" needs a verbatim quote showing it, with "value": "yes". Every "no" or "not_invited"
    needs a verbatim quote showing the opposite, with "value": "no" (e.g. the line where teaching starts with no
    greeting before it, or the goodbye with no homework set). Put each in key_facts.evidence with its fact name.

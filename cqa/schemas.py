@@ -128,6 +128,10 @@ class KeyFacts(BaseModel):
     # ablation A2 (FACTS_DRIVE): reported only when the switch is on
     rapport_before_content: FactState = "unknown"
     each_child_asked_individually: FactState = "unknown"
+    # A3c: the judge quotes the first line of lesson content; code measures the warm-up before it
+    content_start: str = ""  # "hh:mm:ss" of the verified first content line, "" if unknown
+    warm_up_min: float | None = None  # first tutor greeting -> content start
+    warm_up_students: int | None = None  # distinct students with a turn of >= 4 words in that window
     evidence: list[FactEvidence] = Field(default_factory=list)
 
     @field_validator(*YES_NO_FACTS, mode="before")

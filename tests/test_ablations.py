@@ -199,25 +199,59 @@ def test_three_state_facts_need_matching_verified_quotes():
     from cqa.judge.judge import verify_key_facts
 
     tr = _transcript((60, "TUTOR", "today we learn the fork, look at the board"), (3300, "TUTOR", "okay bye everyone"))
-    kf = _kf(rapport_before_content="no", each_child_asked_individually="yes", recap_present="no",
-             evidence=[_ev("rapport_before_content", "no", "00:01:00", "today we learn the fork, look at the board"),
-                       _ev("recap_present", "yes", "00:55:00", "okay bye everyone")])  # fmt: skip
+    kf = _kf(each_child_asked_individually="yes", recap_present="no", homework_assigned="no",
+             evidence=[_ev("recap_present", "yes", "00:55:00", "okay bye everyone"),
+                       _ev("homework_assigned", "no", "00:55:00", "okay bye everyone")])  # fmt: skip
     out, _, reset, guards = verify_key_facts(kf, tr, 90)
-    assert out.rapport_before_content == "no"  # verified quote of the opposite, nothing before it
+    assert out.homework_assigned == "no"  # verified quote of the opposite, no homework word in the closing
     assert out.each_child_asked_individually == "unknown"  # yes without a quote
     assert out.recap_present == "unknown"  # the quote shows yes, not the claimed no
+    assert out.rapport_before_content == "unknown" and out.warm_up_min is None  # no verified content start
     assert set(reset) == {"each_child_asked_individually", "recap_present"}
-    assert guards == {"rapport_no_to_unknown": 0, "homework_no_to_unknown": 0}
+    assert guards == {"homework_no_to_unknown": 0}
 
 
-def test_guard_greeting_before_the_quote_makes_rapport_unknown():
+def _warm_up_class(student_lines, content_at):
+    """Tutor greets at 10 s; students talk before the content line at content_at seconds."""
+    lines = [(10, "TUTOR", "Hello everyone, how are you?")]
+    lines += [(t, spk, txt) for t, spk, txt in student_lines]
+    lines += [(content_at, "TUTOR", "okay let's start with the revision of forks")]
+    return _transcript(*lines)
+
+
+def _rapport(tr, content_ts):
     from cqa.judge.judge import verify_key_facts
 
-    tr = _transcript((5, "TUTOR", "Hello S1, how was school?"), (60, "TUTOR", "today we learn the fork"))
-    kf = _kf(rapport_before_content="no",
-             evidence=[_ev("rapport_before_content", "no", "00:01:00", "today we learn the fork")])  # fmt: skip
-    out, _, _, guards = verify_key_facts(kf, tr, 90)
-    assert out.rapport_before_content == "unknown" and guards["rapport_no_to_unknown"] == 1
+    # the judge's own rapport claim is ignored: rapport is measured from the warm-up (A3c)
+    quote = "okay let's start with the revision of forks"
+    kf = _kf(rapport_before_content="yes", evidence=[_ev("content_start", "yes", content_ts, quote)])
+    return verify_key_facts(kf, tr, 90)[0]
+
+
+def test_rapport_yes_with_three_children_and_three_minutes():
+    talk = [(40, "S1", "I played a tournament this weekend"), (70, "S2", "I went to my grandmother's house"),
+            (120, "S3", "we had a school trip to the zoo"), (150, "S3", "yes")]  # fmt: skip
+    tr = _warm_up_class(talk, 250)
+    out = _rapport(tr, "00:04:10")
+    assert (out.warm_up_min, out.warm_up_students, out.rapport_before_content) == (4.0, 3, "yes")
+    assert out.content_start == "00:04:10"
+
+
+def test_rapport_no_when_only_hello_then_content():
+    tr = _warm_up_class([(30, "S1", "hello ma'am"), (40, "S2", "good evening ma'am how are you")], 70)
+    out = _rapport(tr, "00:01:10")
+    # one student said >= 4 words, one minute of warm-up
+    assert (out.warm_up_min, out.warm_up_students, out.rapport_before_content) == (1.0, 1, "no")
+
+
+def test_rapport_unknown_in_between_and_without_content_start():
+    from cqa.judge.judge import verify_key_facts
+
+    tr = _warm_up_class([(40, "S1", "I played a tournament this weekend"), (90, "S2", "I went to the park today")], 160)
+    out = _rapport(tr, "00:02:40")
+    assert (out.warm_up_min, out.warm_up_students, out.rapport_before_content) == (2.5, 2, "unknown")
+    no_start = verify_key_facts(_kf(rapport_before_content="no"), tr, 90)[0]
+    assert no_start.rapport_before_content == "unknown" and no_start.warm_up_students is None
 
 
 def test_guard_homework_word_in_closing_makes_homework_unknown():

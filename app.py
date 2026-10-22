@@ -125,6 +125,12 @@ def show(a: Assessment) -> None:
                 {"fact": "New joiners invited to introduce themselves", "value": JOINERS[kf.new_joiners]},
                 {"fact": "Children greeted by name before teaching", "value": str(kf.children_greeted_by_name)},
                 {"fact": "Recap at the end", "value": kf.recap_present},
+                {
+                    "fact": "Warm-up before content (rapport)",
+                    "value": "unknown (content start not found)"
+                    if kf.warm_up_min is None
+                    else f"{kf.warm_up_min:g} min, {kf.warm_up_students} children spoke: {kf.rapport_before_content}",
+                },
             ]
         )
         st.dataframe(facts, hide_index=True, width="stretch")

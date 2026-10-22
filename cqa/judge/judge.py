@@ -55,7 +55,9 @@ def _match(quote: str, turns: list[Turn]) -> Turn | None:
     for i, t in enumerate(turns):
         score = fuzz.partial_ratio(q, texts[i])
         if i + 1 < len(turns) and len(q) > len(texts[i]):
-            score = max(score, fuzz.partial_ratio(q, f"{texts[i]} {texts[i + 1]}"))
+            # a quote spanning two turns still matches, but an exact single-turn match wins the tie, so the
+            # timestamp is the quoted line itself, not the short turn before it (A3c content_start)
+            score = max(score, fuzz.partial_ratio(q, f"{texts[i]} {texts[i + 1]}") - 1)
         if score > best_score:
             best, best_score = t, score
     return best if best_score >= MATCH_MIN else None
@@ -91,16 +93,46 @@ def verify_evidence(judged: JudgeOutput, transcript: Transcript, window_s: float
 
 
 GREETING_RE = re.compile(r"\b(?:hi|hello|hey|good (?:morning|afternoon|evening)|how are you)\b", re.IGNORECASE)
-ADDRESSED_RE = re.compile(r"\bS\d+\b|\[NAME\]")
 HOMEWORK_RE = re.compile(r"\b(?:home ?work|assignment|practi[cs]e|at home)\b", re.IGNORECASE)
+
+
+# A3c, fixed before results: rapport = a real warm-up between the first greeting and the first content line
+WARM_UP_MIN_WORDS = 4
+RAPPORT_NO_BELOW = (2, 2.0)  # fewer than 2 students talking or under 2 minutes -> "no"
+RAPPORT_YES_FROM = (3, 3.0)  # at least 3 students talking and at least 3 minutes -> "yes"
+
+
+def warm_up(transcript: Transcript, content_start_s: float) -> tuple[float, int]:
+    """(minutes from the first tutor greeting to the start of content, distinct students with a turn of
+    >= WARM_UP_MIN_WORDS words in that window). No greeting before content -> (0, 0)."""
+    greetings = [t.start_s for t in transcript.turns
+                 if t.role == "tutor" and t.start_s <= content_start_s and GREETING_RE.search(t.text)]  # fmt: skip
+    if not greetings:
+        return 0.0, 0
+    start = min(greetings)
+    talkers = {
+        t.speaker
+        for t in transcript.turns
+        if t.role == "student" and start <= t.start_s < content_start_s and len(t.text.split()) >= WARM_UP_MIN_WORDS
+    }
+    return round((content_start_s - start) / 60, 1), len(talkers)
+
+
+def rapport_from_warm_up(minutes: float, students: int) -> str:
+    if students < RAPPORT_NO_BELOW[0] or minutes < RAPPORT_NO_BELOW[1]:
+        return "no"
+    if students >= RAPPORT_YES_FROM[0] and minutes >= RAPPORT_YES_FROM[1]:
+        return "yes"
+    return "unknown"
 
 
 def verify_key_facts(
     kf: KeyFacts, transcript: Transcript, window_s: float, closing_min: float = 10.0
 ) -> tuple[KeyFacts, int, list[str], dict[str, int]]:
     """Three-state facts (A3b): "yes" / "invited" need a verified quote with value yes, "no" / "not_invited" a
-    verified quote with value no; otherwise the fact becomes "unknown". Code guards then move a "no" to "unknown"
-    when the transcript contradicts it (a quote proves a line exists, not that nothing happened before it).
+    verified quote with value no; otherwise the fact becomes "unknown". The homework guard moves a "no" to "unknown"
+    when the closing window mentions homework. rapport_before_content is measured by code from the warm-up before
+    the verified first content line (A3c); without a verified content_start it is "unknown".
     Returns (facts, dropped quotes, facts reset to unknown, guard counts)."""
     kept, dropped = verify_list(kf.evidence, transcript, window_s)
     shown = {(e.fact, e.value) for e in kept}
@@ -115,13 +147,15 @@ def verify_key_facts(
     if joiner_value and ("new_joiners", joiner_value) not in shown:
         updates["new_joiners"] = "unknown"
 
-    guards = {"rapport_no_to_unknown": 0, "homework_no_to_unknown": 0}
-    if updates.get("rapport_before_content", kf.rapport_before_content) == "no":
-        quoted = [parse_ts(e.timestamp) for e in kept if e.fact == "rapport_before_content" and e.value == "no"]
-        before = [t for t in transcript.turns if t.role == "tutor" and quoted and t.start_s < min(quoted)]
-        if any(GREETING_RE.search(t.text) or ADDRESSED_RE.search(t.text) for t in before):
-            updates["rapport_before_content"] = "unknown"
-            guards["rapport_no_to_unknown"] += 1
+    starts = [parse_ts(e.timestamp) for e in kept if e.fact == "content_start"]
+    if starts:
+        minutes, students = warm_up(transcript, min(starts))
+        updates.update(content_start=format_ts(min(starts)), warm_up_min=minutes, warm_up_students=students,
+                       rapport_before_content=rapport_from_warm_up(minutes, students))  # fmt: skip
+    else:
+        updates.update(content_start="", warm_up_min=None, warm_up_students=None, rapport_before_content="unknown")
+
+    guards = {"homework_no_to_unknown": 0}
     if updates.get("homework_assigned", kf.homework_assigned) == "no":
         closing_start = transcript.duration_s - closing_min * 60
         if any(HOMEWORK_RE.search(t.text) for t in transcript.turns if t.start_s >= closing_start):
@@ -129,7 +163,15 @@ def verify_key_facts(
             guards["homework_no_to_unknown"] += 1
     if updates.get("homework_assigned", kf.homework_assigned) != "yes":
         updates["homework_what"] = ""
-    reset = [k for k in updates if k not in ("evidence", "homework_what")]
+    measured = (
+        "evidence",
+        "homework_what",
+        "content_start",
+        "warm_up_min",
+        "warm_up_students",
+        "rapport_before_content",
+    )
+    reset = [k for k in updates if k not in measured]
     return kf.model_copy(update=updates), dropped, reset, guards
 
 
