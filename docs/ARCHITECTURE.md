@@ -8,7 +8,8 @@ Input: mp4 upload | Google Drive link | (optional) Zoom .vtt
  2. Media        ffprobe duration; 16 kHz mono WAV; 1 frame / FRAME_INTERVAL_SEC (640 px)
  3. Transcript   VTT given -> parse (exact speakers)
                  else      -> whisper.cpp (speaker UNKNOWN; Phase 2: LLM role tagging, windowed ASR)
-                 -> tutor identification -> pseudonymise (TUTOR, S1..Sn)
+                 -> tutor identification -> pseudonymise (TUTOR, S1..Sn; VTT only)
+                 -> [NAME] scrub of remaining capitalised names (both paths); scripts/leak_audit.py checks it
  4. Features     text stats (talk share, student turns/min, distinct speakers, opening/closing windows,
                  connectivity phrases); visual metrics (face %, dark %, black %, frozen %, blur) - OpenCV + YuNet face detector, local
  5. LLM judge    DeepSeek, JSON mode: per-criterion score 1-4 + observations + timestamped quotes + improvement

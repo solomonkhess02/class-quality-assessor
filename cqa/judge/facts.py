@@ -121,7 +121,8 @@ def facts_system_prompt() -> str:
     ids = ", ".join(f'"{c.id}"' for c in LLM_CRITERIA)
     return f"""You are an experienced academic quality reviewer for 8x8, an online chess academy for children.
 You review a machine transcript of a live group class (one tutor, several children). Names are pseudonymised:
-TUTOR is the tutor, S1, S2, ... are children, UNKNOWN means the speaker is not identified. Expect speech
+TUTOR is the tutor, S1, S2, ... are children, UNKNOWN means the speaker is not identified, [NAME] is a name
+that could not be linked to a speaker. Expect speech
 recognition errors.
 
 Your job is to EXTRACT OBSERVABLE FACTS, not to grade. Report these facts:

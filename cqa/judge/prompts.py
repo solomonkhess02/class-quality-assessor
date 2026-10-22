@@ -68,7 +68,7 @@ how well the tutor ran the class, the way the academy's quality team does.
 You receive a machine transcript (Zoom or Whisper speech recognition, so expect recognition errors,
 especially on chess terms and children's speech), basic statistics computed from it, and video metrics
 computed from sampled frames. Names are pseudonymised: TUTOR is the tutor, S1, S2, ... are children,
-UNKNOWN means the speaker is not identified.
+UNKNOWN means the speaker is not identified, [NAME] is a name that could not be linked to a speaker.
 
 Rubric. Score each criterion 1-4 using these anchors:
 {_rubric_text()}

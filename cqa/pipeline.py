@@ -14,7 +14,7 @@ from cqa.ingest import cache_dir_for, sha256_file
 from cqa.judge.judge import judge
 from cqa.schemas import Assessment, JudgeOutput, Transcript, VisualReport
 from cqa.scoring import assess
-from cqa.transcript.privacy import pseudonymise, scrub_transcript
+from cqa.transcript.privacy import anonymise
 from cqa.transcript.roles import assign_roles
 from cqa.transcript.vtt import parse_vtt
 from cqa.transcript.whisper import transcribe_media
@@ -74,10 +74,7 @@ def run(
     else:
         progress("transcript", "Transcribing audio with whisper.cpp (slow on CPU)")
     raw = assign_roles(load_transcript(video, vtt, cdir))
-    if raw.source == "vtt":
-        transcript, _mapping = pseudonymise(raw)
-    else:
-        transcript = scrub_transcript(raw)
+    transcript, _mapping = anonymise(raw)
     if not transcript.duration_s and video is not None:
         transcript = transcript.model_copy(update={"duration_s": media.probe_duration(video)})
     lap("transcript")

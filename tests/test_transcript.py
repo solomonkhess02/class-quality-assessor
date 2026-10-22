@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from cqa.schemas import Transcript, Turn
-from cqa.transcript.privacy import pseudonymise
+from cqa.transcript.privacy import anonymise, leak_counts, pseudonymise, scrub_stats
 from cqa.transcript.roles import assign_roles
 from cqa.transcript.vtt import merge_turns, parse_vtt
 
@@ -93,10 +93,64 @@ def test_pseudonymise_fuzzy_and_device_names():
 
 def test_no_real_name_survives():
     for fixture in ("simple.vtt", "messy.vtt"):
-        t, _ = pseudonymise(assign_roles(parse_vtt(load(fixture))))
-        dump = t.model_dump_json()
-        for name in REAL_NAMES:
-            assert name not in dump, (fixture, name)
+        for fn in (pseudonymise, anonymise):
+            t, _ = fn(assign_roles(parse_vtt(load(fixture))))
+            dump = t.model_dump_json()
+            for name in REAL_NAMES:
+                assert name not in dump, (fixture, fn.__name__, name)
+
+
+def _vtt(*lines: tuple[str, str]) -> Transcript:
+    """VTT transcript with one turn per line; turn length follows text length, so the first speaker is the tutor."""
+    turns = [
+        Turn(start_s=i * 100, end_s=i * 100 + len(txt), speaker=spk, text=txt) for i, (spk, txt) in enumerate(lines)
+    ]
+    return assign_roles(Transcript(source="vtt", turns=turns))
+
+
+def test_vtt_second_pass_scrubs_unlisted_names():
+    raw = _vtt(
+        ("Priya Raman", "Hello Arjun, welcome. Is Kavya joining today? Kavya, your turn. Move the Knight to f3."),
+        ("Arjun's iPhone", "Yes ma'am, I am ready."),
+    )
+    t, mapping = anonymise(raw)
+    assert mapping == {"Priya Raman": "TUTOR", "Arjun's iPhone": "S1"}
+    assert t.turns[0].speaker == "TUTOR"
+    assert t.turns[0].text == ("Hello S1, welcome. Is [NAME] joining today? [NAME], your turn. Move the Knight to f3.")
+    assert t.turns[1].text == "Yes ma'am, I am ready."
+
+
+def test_lowercase_name_variant_is_pseudonymised():
+    t, _ = anonymise(_vtt(("Priya Raman", "well done arav, and aarav's move is next"), ("Aarav's iPad", "ok")))
+    assert t.turns[0].text == "well done S1, and S1's move is next"
+
+
+def test_teaching_sentence_survives():
+    for sentence in (
+        "Move your knight to f3, then castle on the king side and check the bishop",
+        "Move your Knight to f3, then Castle on the King side and Check the Bishop.",
+    ):
+        t, _ = anonymise(_vtt(("Priya Raman", sentence), ("Meera Kapoor", "ok")))
+        assert t.turns[0].text == sentence
+
+
+def test_leak_counts():
+    names = ["Priya Raman", "Arjun's iPhone", "iPad (Meera)"]
+    clean, _ = anonymise(_vtt(("Priya Raman", "Great Arjun. Meera, what is a fork?"), ("Arjun's iPhone", "Yes")))
+    text = "\n".join(f"{x.speaker}: {x.text}" for x in clean.turns)
+    lc = leak_counts(text, "", names)
+    assert (lc.caps, lc.name_hits) == (0, 0)
+    # a lowercase variant and a name hidden behind a device word are both caught
+    leaky = leak_counts("TUTOR: well done arav, and meera too", "", ["Aarav's iPad", "iPad (Meera)"])
+    assert leaky.name_hits == 2 and leaky.names_hit == 2
+    # chess vocabulary and template words are not counted
+    assert leak_counts("Bishop takes the Rook. Rubric says so.", "Rubric", names).caps == 0
+    assert leak_counts("Then Kavya moved.", "", names).caps == 1
+
+
+def test_scrub_stats():
+    t, _ = anonymise(_vtt(("Priya Raman", "Kavya, sit down please now"), ("Meera Kapoor", "ok")))
+    assert scrub_stats(t) == (1, 1 / 5)
 
 
 def test_scrub_names_for_whisper_text():

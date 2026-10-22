@@ -6,6 +6,7 @@ The returned mapping (real display name -> pseudonym) must never leave the proce
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 from rapidfuzz import fuzz
 
@@ -29,6 +30,7 @@ STOPWORDS = DEVICE_WORDS | {
     "english", "hindi",
 }  # fmt: skip
 _CAP_TOKEN = re.compile(r"\b[A-Z][a-zA-Z]{2,}\b")
+_WORD_TOKEN = re.compile(r"\b[A-Za-z]{3,}\b")
 
 
 def _base_name(display: str) -> str:
@@ -67,7 +69,9 @@ def _replace_names(text: str, patterns: list[tuple[re.Pattern[str], str]], fuzzy
 
     def fuzzy_sub(m: re.Match[str]) -> str:
         tok = m.group(0)
-        if tok.lower() in STOPWORDS:
+        # Lowercase name variants ("arav") leak too (E11); lowercase tokens are mostly ordinary words, so they
+        # get the wider allowlist.
+        if tok.lower() in (STOPWORDS if tok[0].isupper() else ALLOWED_CAPS):
             return tok
         best, best_score = None, 0.0
         for name, pseudo in fuzzy.items():
@@ -76,7 +80,7 @@ def _replace_names(text: str, patterns: list[tuple[re.Pattern[str], str]], fuzzy
                 best, best_score = pseudo, score
         return best if best and best_score >= FUZZY_MIN else tok
 
-    return _CAP_TOKEN.sub(fuzzy_sub, text)
+    return _WORD_TOKEN.sub(fuzzy_sub, text)
 
 
 def pseudonymise(transcript: Transcript) -> tuple[Transcript, dict[str, str]]:
@@ -156,3 +160,70 @@ def scrub_names(text: str) -> str:
 def scrub_transcript(transcript: Transcript) -> Transcript:
     turns = [t.model_copy(update={"text": scrub_names(t.text)}) for t in transcript.turns]
     return transcript.model_copy(update={"turns": turns})
+
+
+def anonymise(transcript: Transcript) -> tuple[Transcript, dict[str, str]]:
+    """The only transcript text that may leave the process. Expects roles to be assigned.
+
+    VTT: display names -> pseudonyms, then the [NAME] scrubber for names said aloud that are nobody's display
+    name (a parent's account, "iPhone (Arjun)", absent children). Whisper: scrubber only.
+    """
+    mapping: dict[str, str] = {}
+    if transcript.source == "vtt":
+        transcript, mapping = pseudonymise(transcript)
+    return scrub_transcript(transcript), mapping
+
+
+# Leak audit (scripts/leak_audit.py). Counts only; matched tokens never leave the local machine.
+AUDIT_FUZZY_MIN = 70
+_WORD = re.compile(r"[A-Za-z]+")
+
+
+def display_name_tokens(names: list[str]) -> set[str]:
+    """Every alphabetic token (>= 3 chars) of the full display names, minus device words and stopwords.
+    Deliberately independent of _base_name, which drops everything after a device word."""
+    return {
+        tok.lower() for name in names for tok in _WORD.findall(name) if len(tok) >= 3 and tok.lower() not in STOPWORDS
+    }
+
+
+@dataclass
+class LeakCounts:
+    caps: int  # (a) capitalised tokens not in the allowlist, pseudonyms or prompt template
+    caps_distinct: int
+    name_hits: int  # (b) tokens fuzzy-matching a display-name token at >= AUDIT_FUZZY_MIN
+    names_hit: int  # distinct display-name tokens matched
+    hits: list[tuple[str, str, float]]  # (token, name token, score); local dump only
+
+
+def leak_counts(text: str, template: str, display_names: list[str]) -> LeakCounts:
+    """Audit one judge input. Tokens that also occur in the fixed prompt template are ignored."""
+    skip = {w.lower() for w in _WORD.findall(template)} | ALLOWED_CAPS | {"tutor", "name"}
+    caps = [m.group(0) for m in _CAP_TOKEN.finditer(text) if m.group(0).lower() not in skip]
+    names = display_name_tokens(display_names)
+    counts: dict[str, int] = {}
+    for w in _WORD.findall(text):
+        w = w.lower()
+        if len(w) >= 3 and w not in skip:
+            counts[w] = counts.get(w, 0) + 1
+    hits: list[tuple[str, str, float]] = []
+    for w in counts:
+        best = max(((fuzz.ratio(w, n), n) for n in names), default=(0.0, ""))
+        if best[0] >= AUDIT_FUZZY_MIN:
+            hits.append((w, best[1], round(best[0], 1)))
+    return LeakCounts(
+        caps=len(caps),
+        caps_distinct=len({c.lower() for c in caps}),
+        name_hits=sum(counts[w] for w, _, _ in hits),
+        names_hit=len({n for _, n, _ in hits}),
+        hits=hits,
+    )
+
+
+def scrub_stats(transcript: Transcript) -> tuple[int, float]:
+    """(c) Over-scrubbing: [NAME] replacements, and the share of tutor word tokens that are [NAME]."""
+    total = sum(t.text.count(NAME_TOKEN) for t in transcript.turns)
+    tutor = [t.text for t in transcript.turns if t.role == "tutor"]
+    words = sum(len(x.split()) for x in tutor)
+    scrubbed = sum(x.count(NAME_TOKEN) for x in tutor)
+    return total, scrubbed / words if words else 0.0

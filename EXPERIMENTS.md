@@ -136,3 +136,29 @@ Append-only. Each entry: hypothesis, method, result, decision. No real names or 
   6. Confidence is 1.00 on 9 wrong labels (uninformative). Visual disagreements are quality issue B392 (missing 8x8 background, not measured in Phase 1) and weak B482 (camera "sometimes" off; face in 85% of frames).
   7. Bug found and fixed: with 0 scored criteria (unusable Malayalam transcript) the problem rule said Excellent; labels now need >= 3 scored criteria, otherwise a placeholder with a warning.
 - Decision: ship the problem-count rule (DECISIONS D12) on reasoning plus results; thresholds are not fitted. Not done here, because it would be fitting to these 10 classes: dropping communication and technical_quality from the problem count. Phase 2 candidates: audio energy features for communication, a stricter definition for technical problems, confidence from label margin and run-to-run agreement, 8x8 background check.
+
+## E11 (22 Oct): Do names still reach the judge on the VTT path? (P2.1)
+- Hypothesis: replacing Zoom display names (exact + fuzzy on capitalised words) is not enough. Names said aloud that are nobody's display name, and lowercase variants, reach DeepSeek.
+- Change: the VTT path now also runs the whisper-path [NAME] scrubber after display-name replacement (privacy.anonymise, used by the pipeline and the audit). The display-name fuzzy pass now also covers lowercase words (FUZZY_MIN 85, wider allowlist for lowercase).
+- Method: scripts/leak_audit.py builds the exact judge input (VTT-only mode) for all 12 classes, with no API calls. Tokens from the fixed prompt template are ignored. (a) capitalised tokens not in the allowlist or pseudonyms; (b) tokens fuzzy-matching (>= 70) a token of the original display names, which are tokenised from the full name, independently of the pipeline; (c) [NAME] count and the share of tutor words replaced. Pass: (b) = 0 everywhere, (c) <= ~2%. Counts only; matched tokens go to .cache/leak_audit_hits.json for local review.
+
+| class | (a) caps | (b) hits | (b) names hit | (c) [NAME] | (c) tutor share |
+|---|---|---|---|---|---|
+| average/B435 | 32 | 1 | 1 | 34 | 1.28% |
+| average/B516 | 52 | 4 | 3 | 113 | 3.99% |
+| demo/1 | 148 | 0 | 0 | 154 | 7.06% |
+| demo/2 | 71 | 16 | 2 | 65 | 0.99% |
+| excellent/B472 | 118 | 11 | 4 | 158 | 1.73% |
+| excellent/B491 | 109 | 3 | 3 | 165 | 3.17% |
+| good/B435 | 40 | 2 | 2 | 51 | 1.69% |
+| good/B552 | 103 | 0 | 0 | 105 | 2.00% |
+| quality issue/B392 | 92 | 12 | 4 | 128 | 2.05% |
+| quality issue/B441 | 105 | 13 | 6 | 136 | 2.94% |
+| weak/B482 | 43 | 0 | 0 | 50 | 2.25% |
+| weak/B558 | 78 | 5 | 2 | 94 | 1.76% |
+
+- Result:
+  1. (b) fails in 9 of 12 classes. No hit is an exact match. Before the lowercase pass, excellent B472 had 2 hits at 85-99. The lowercase pass removed them (3 replacements in B472, 1 in demo/2), and every remaining hit scores 70-84. The fuzzy matcher puts ordinary words in this range when they are close to short names, so these need a manual look at the dump before they count as leaks. Every hit name token is one the pipeline already knows; the _base_name blind spot (device word first) did not occur.
+  2. (c) is above 2% in 6 classes (B516 3.99%, B491 3.17%, B441 2.94%, B482 2.25%, B392 2.05%, Malayalam demo/1 7.06%, whose English ASR is noise). Aggregate breakdown of the tutor scrubs: repeated, vocatively used words (3+ uses, at least one followed by , ? !) are 3-49 scrubs per class and are very likely real children's names that are nobody's display name. Scrubs of words used only once (the upper bound on wrongly scrubbed ordinary words) are at most 1.39% of tutor words in every labelled class except B516 (2.75%) and demo/1 (5.66%).
+  3. Rejected alternative: keep a capitalised word if it appears lowercase in the same class. It lowered (c) by only 0.1-0.8 points and, when one lowercase use was enough, it let display names back through (B516 (b) 4 -> 8).
+- Decision: ship the second pass plus the lowercase fuzzy pass. The 70-84 hits wait for manual review of the dump. As defined, (c) counts correct scrubs of real names too; the measure of over-scrubbing is the one-off share, which fails only for B516 and the unusable Malayalam transcript. The judge input changed, so eval/results.md predates this change and has not been re-run.
