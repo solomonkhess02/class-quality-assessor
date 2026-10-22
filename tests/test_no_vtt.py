@@ -96,3 +96,19 @@ def test_whisper_cache_name_keys_language_and_windows():
     en, ml = cache_name([(0.0, 480.0)], "en"), cache_name([(0.0, 480.0)], "ml")
     assert en != ml and en.startswith("whisper_en_") and en.endswith(".json")
     assert cache_name(None, "en") == "whisper_en_full.json"
+
+
+def test_judged_rapport_is_moderate_never_critical():
+    """D22: without speakers, "no rapport" comes from the judge's quote and counts as moderate; measured from the
+    warm-up (speakers known) it stays critical."""
+    from cqa.config import get_settings
+    from cqa.schemas import CriterionResult
+    from cqa.scoring import severity_findings
+
+    criteria = [CriterionResult(id="opening_rapport", score=2)]
+    judged = KeyFacts(rapport_before_content="no", rapport_method="judge")
+    critical, moderate, _ = severity_findings(criteria, judged, None, get_settings())
+    assert critical == [] and "no rapport before content (judged without speakers)" in moderate
+    measured = KeyFacts(rapport_before_content="no", rapport_method="warm_up")
+    critical, _, _ = severity_findings(criteria, measured, None, get_settings())
+    assert critical == ["no rapport before content"]

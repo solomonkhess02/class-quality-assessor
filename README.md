@@ -35,23 +35,23 @@ Criteria (from the organiser's feedback on the sample classes): opening and rapp
 ## Evaluation
 Measured on the 10 labelled sample classes, with repeated judge runs ([docs/EVALUATION.md](docs/EVALUATION.md), [eval/scorecard.md](eval/scorecard.md)).
 
-Final configuration, VTT path with video, 3 judge runs (scorecard tag `final`, 22 Oct). Values are the mean over the runs, with the range in brackets.
+Final configuration, VTT path with video, 3 judge runs (scorecard tag `final_v2`, 23 Oct). Values are the mean over the runs, with the range in brackets. `final_v2` replaces `final` (22 Oct, [eval/scorecard_final.md](eval/scorecard_final.md)) after a quote-verification bug credited some tutor lines to children (E26). The fix lowered the numbers: one Poor class (B441) is now rated Average. The rules were not re-tuned to win it back.
 
 | Metric | Result | Best trivial baseline |
 |---|---|---|
-| Exact label | 5 / 10 [5-5] | 4 / 10 (always "Poor") |
+| Exact label | 4 / 10 [4-4] (was 5) | 4 / 10 (always "Poor") |
 | Within one level | 9.7 / 10 [9-10] | 8 / 10 (always "Average") |
-| Pairwise ordering (36 class pairs) | 88% [88-89] | 50% (any constant or random label) |
-| Mean absolute error (levels) | 0.53 [0.50-0.60] | 1.00 (always "Average") |
-| Bias (predicted - true level; negative = harsh) | -0.53 [-0.60 to -0.50]: both Average classes rated Poor, both Excellent classes Good | -0.20 (always "Average") |
-| Weakness recall (organiser's criticised criteria caught) | 50% of 18 | - |
-| Feedback recall, all organiser points | 66% of 47 | - |
-| - points visible in the transcript | 86% of 28 | - |
-| - points visible only on video | 21% of 12 | - |
-| - points audible only in the voice | 56% of 6 | - |
-| Evidence validity (quotes found in the transcript) | 100% [99-100] of ~191 quotes per run | - |
+| Pairwise ordering (36 class pairs) | 83% [82-83] (was 88%) | 50% (any constant or random label) |
+| Mean absolute error (levels) | 0.63 [0.60-0.70] (was 0.53) | 1.00 (always "Average") |
+| Bias (predicted - true level; negative = harsh) | -0.43 [-0.50 to -0.40]: both Average classes rated Poor, both Excellent classes mostly Good | -0.20 (always "Average") |
+| Weakness recall (organiser's criticised criteria caught) | 48% of 18 | - |
+| Feedback recall, all organiser points | 65% of 47 | - |
+| - points visible in the transcript | 87% of 28 | - |
+| - points visible only on video | 24% of 12 | - |
+| - points audible only in the voice | 39% of 6 | - |
+| Evidence validity (quotes found in the transcript) | 99% [99-99] of ~193 quotes per run | - |
 | Run agreement (same label in all 3 runs) | 9 / 10 classes | - |
-| Privacy gate (no names sent to the judge) | Pass: 0 name matches at >= 85% similarity, every borderline match human-reviewed, 0 children's names left; 1 documented exception (an ASR-mangled form of the tutor's name, D16, E24) | - |
+| Privacy gate (no names sent to the judge) | **Failing on the no-transcript path.** VTT path: pass (0 name matches at >= 85% similarity, every borderline match human-reviewed, 1 documented exception: an ASR-mangled form of the tutor's name, E24). No-transcript (whisper) path: 1 child's name, written in lowercase, still reaches the judge in 1 of 3 audited classes (E27) | - |
 
 Trivial baselines in full ([eval/scorecard.md](eval/scorecard.md)):
 
@@ -61,8 +61,8 @@ Trivial baselines in full ([eval/scorecard.md](eval/scorecard.md)):
 | Always "Average" | 2/10 | 8/10 | 1.00 | -0.20 | 50% |
 | Random label (expected) | 2.5/10 | 6/10 | 1.30 | +0.30 | 50% |
 
-**No-transcript path** (whisper instead of the Zoom VTT; EXPERIMENTS E22, E23, E25):
-- Same label as the VTT path on 2 of 2 tested classes (B472 Good, B482 Poor), after three changes made from the first comparison (0 of 2): the class language is set explicitly instead of auto-detected, the closing window is 10 minutes like the judge's, and without speakers rapport comes from the judge's quoted fact instead of the warm-up measurement. Individual engagement still scores one point lower on both, because questions cannot be attributed to children. The changes were chosen after looking at these same two classes, so this is a sanity check, not an accuracy figure.
+**No-transcript path** (whisper instead of the Zoom VTT; EXPERIMENTS E22, E23, E25, E27):
+- Same label as the VTT path on 1 of 3 tested classes. Excellent B472 matches (Good). Weak B482 (Poor) and good B552 (Good) both come out Average. The class language is set explicitly, and the closing window is 10 minutes like the judge's. Without speakers, rapport comes from the judge's quoted line instead of the warm-up measurement, and since a quote that can't be attributed is weak evidence, it counts only as a moderate problem (D22). That stops a single judged rapport finding from making a class Poor (B552 was rated Poor that way in a live test), but the path can now rarely give Poor. These are 3 classes, and the earlier changes were chosen after looking at two of them, so treat this as a sanity check, not an accuracy figure.
 
 | Whisper time per class (2 threads, English) | Audio transcribed | Time |
 |---|---|---|

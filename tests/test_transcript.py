@@ -243,6 +243,47 @@ def test_scrub_names_for_whisper_text():
     assert scrub_names("Where is Kavya?") == "Where is [NAME]?"
 
 
+def _whisper(*texts: str) -> Transcript:
+    return Transcript(
+        source="whisper",
+        turns=[Turn(start_s=i * 5, end_s=i * 5 + 4, speaker="UNKNOWN", text=x) for i, x in enumerate(texts)],
+    )
+
+
+def test_whisper_path_scrubs_vocatives_and_rare_words_at_sentence_start():
+    # synthetic: "Hope" is a name that is also a common word (zipf >= 4); "Kavya" is not common English
+    t, mapping = anonymise(
+        _whisper(
+            "Hope, is it?",  # vocative at a sentence start, common word: scrubbed (E27)
+            "Okay. Kavya is ready now.",  # not common English, sentence start: scrubbed (E27)
+            "Hope you enjoyed the class.",  # common word at a sentence start, no , ? ! after: kept
+            "Very good, Hope!",  # vocative mid-sentence
+        )
+    )
+    assert mapping == {}
+    assert [x.text for x in t.turns] == [
+        "[NAME], is it?",
+        "Okay. [NAME] is ready now.",
+        "Hope you enjoyed the class.",
+        "Very good, [NAME]!",
+    ]
+
+
+def test_whisper_path_keeps_chess_and_pseudonyms():
+    chess = (
+        "Now, Knight to f3. Bishop takes the Rook! Castle King side, then Checkmate with the Queen. "
+        "Pawn, Check, and Stalemate are different. Okay, Good, Very nice. Yes, What is En Passant?"
+    )
+    t, _ = anonymise(_whisper(chess, "TUTOR asks S1 about the Sicilian Defence."))
+    assert [x.text for x in t.turns] == [chess, "TUTOR asks S1 about the Sicilian Defence."]
+
+
+def test_vtt_path_scrubber_unchanged():
+    # with display names the second pass keeps its earlier rules: a common word at a sentence start stays
+    t, _ = anonymise(_vtt(("Priya Raman", "Hope, is it? Kavya is here."), ("Meera Kapoor", "ok")))
+    assert t.turns[0].text == "Hope, is it? Kavya is here."
+
+
 def test_scrub_keeps_chess_sentences_and_pseudonyms():
     from cqa.transcript.privacy import scrub_names
 

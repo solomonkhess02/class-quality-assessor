@@ -161,7 +161,14 @@ def severity_checks(
         return None if state == "unknown" else state == "no"
 
     if s.facts_drive:
-        checks["no_rapport"] = (fact("rapport_before_content"), "critical", "no rapport before content")
+        # D22: a critical problem needs speaker-labelled evidence; without speakers (whisper path) rapport is the
+        # judge's fact from a quote whose speaker is unknown, so it can count as a moderate problem at most
+        judged = kf is not None and kf.rapport_method == "judge"
+        checks["no_rapport"] = (
+            fact("rapport_before_content"),
+            "moderate" if judged else "critical",
+            "no rapport before content (judged without speakers)" if judged else "no rapport before content",
+        )
     else:
         opening = score.get("opening_rapport")
         checks["no_rapport"] = (None if opening is None else opening <= 2, "critical", "no rapport (opening <= 2)")

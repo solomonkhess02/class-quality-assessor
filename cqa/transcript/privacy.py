@@ -190,20 +190,28 @@ _SENTENCE_START = re.compile(r"(?:^|[.?!]\s+)$")
 NAME_TOKEN = "[NAME]"
 
 
-def scrub_names(text: str, common_zipf: float = COMMON_ZIPF) -> str:
+def scrub_names(text: str, common_zipf: float = COMMON_ZIPF, strict: bool = False) -> str:
+    """[NAME] for capitalised words that read as names. strict (no display names to pseudonymise from, i.e. the
+    whisper path, E27): any capitalised non-allowlisted word used as a vocative ("X, is it?") is scrubbed even if it
+    is a common word, and a capitalised word that is not common English is scrubbed even at a sentence start."""
+
     def sub(m: re.Match[str]) -> str:
         tok = m.group(0)
-        if _keep(tok, common_zipf) or _PSEUDONYM.match(tok):
+        if tok.lower() in ALLOWED_CAPS or _PSEUDONYM.match(tok):
             return tok
         at_start = bool(_SENTENCE_START.search(text[: m.start()]))
         vocative = text[m.end() : m.end() + 1] in {",", "?", "!"}
+        if strict:
+            return NAME_TOKEN if vocative or not is_common_word(tok, common_zipf) else tok
+        if is_common_word(tok, common_zipf):
+            return tok
         return NAME_TOKEN if (not at_start or vocative) else tok
 
     return _CAP_TOKEN.sub(sub, text)
 
 
-def scrub_transcript(transcript: Transcript, common_zipf: float = COMMON_ZIPF) -> Transcript:
-    turns = [t.model_copy(update={"text": scrub_names(t.text, common_zipf)}) for t in transcript.turns]
+def scrub_transcript(transcript: Transcript, common_zipf: float = COMMON_ZIPF, strict: bool = False) -> Transcript:
+    turns = [t.model_copy(update={"text": scrub_names(t.text, common_zipf, strict)}) for t in transcript.turns]
     return transcript.model_copy(update={"turns": turns})
 
 
@@ -219,7 +227,8 @@ def anonymise(
     mapping: dict[str, str] = {}
     if transcript.source == "vtt":
         transcript, mapping = pseudonymise(transcript, name_min, common_zipf)
-    return scrub_transcript(transcript, common_zipf), mapping
+    # no display names (whisper, or a transcript without speaker names): the scrubber is the only defence (E27)
+    return scrub_transcript(transcript, common_zipf, strict=not mapping), mapping
 
 
 # Leak audit (scripts/leak_audit.py). Counts only; matched tokens never leave the local machine.
