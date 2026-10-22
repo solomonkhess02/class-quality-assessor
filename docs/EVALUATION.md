@@ -28,7 +28,8 @@ There are 10 labelled classes (2 per level, 4 Poor once weak and quality issue a
 | Confidence | Separation | Mean confidence on correct vs wrong labels. Useful only if wrong < correct. |
 | Path | VTT vs no-VTT | On 4 classes (one per level): label difference and criterion MAE between paths. Malayalam demo must get a real (non-placeholder) assessment. |
 | Operational | Time, cost, failures | Wall time per class at 2 threads and on the Space; DeepSeek cost per class; pass rate on the failure-case suite (bad Drive link, .mkv/.webm, 90-min file, long silences, unusable VTT). |
-| Gate | Privacy | D16: zero leak-audit (b) hits at >= 85 similarity, no human-labelled names left in the 70-84 band (documented exceptions only), and over-scrub (scrubbed common English words as a share of tutor words) <= 0.5% per class, excluding the ASR-noise demo. A failing gate blocks any release. |
+| Gate | Privacy | D16: zero leak-audit (b) hits at >= 85 similarity and no human-labelled names left in the 70-84 band (documented exceptions only). A failing gate blocks any release. |
+| Utility | Over-scrub | Scrubbed common English words as a share of tutor words, target <= 0.5% per class (ASR-noise demo excluded). Monitored, not a gate: over-scrubbing costs judge accuracy, not privacy, and that cost already shows up in the accuracy metrics. |
 
 ## Trivial baselines (any real result must beat these)
 | Baseline | Exact | Within one | MAE | Pairwise |

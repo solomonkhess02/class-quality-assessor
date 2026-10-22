@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from cqa.config import get_settings
 from cqa.judge.rubric import LLM_CRITERIA
 from cqa.schemas import TextStats, Transcript, VisualReport, format_ts
 
@@ -46,6 +47,18 @@ EXAMPLE = {
     "strengths": ["Specific strength with a timestamp, e.g. names every child in the warm-up (00:00:42)."],
     "improvements": ["Specific, actionable suggestion, e.g. assign one named homework task in the last 5 minutes."],
 }  # fmt: skip
+
+
+EVIDENCE_FIRST_ORDER = ["id", "observations", "evidence", "improvement", "insufficient_evidence", "score"]
+
+
+def example() -> dict:
+    """The output example. With JUDGE_EVIDENCE_FIRST (ablation A0) each criterion lists observations and
+    evidence before the score, so the model writes its reasons before committing to a number."""
+    if not get_settings().judge_evidence_first:
+        return EXAMPLE
+    criteria = [{k: c[k] for k in EVIDENCE_FIRST_ORDER if k in c} for c in EXAMPLE["criteria"]]
+    return {**EXAMPLE, "criteria": criteria}
 
 
 def _rubric_text() -> str:
@@ -100,7 +113,7 @@ Rules:
 Return a single json object with exactly these keys: "transcript_usable", "transcript_note",
 "criteria" (one entry for each of: {ids}), "key_facts", "summary", "strengths", "improvements".
 Example of the format (content is illustrative only):
-{json.dumps(EXAMPLE, indent=1)}"""
+{json.dumps(example(), indent=1)}"""
 
 
 def format_transcript(transcript: Transcript, opening_min: float, closing_min: float) -> str:

@@ -142,6 +142,15 @@ def git_commit() -> str:
     return sha.stdout.strip() + ("-dirty" if dirty.stdout.strip() else "")
 
 
+def switches() -> str:
+    """Ablation switches in effect (cqa/config.py)."""
+    s = get_settings()
+    return (
+        f"evidence_first={'yes' if s.judge_evidence_first else 'no'}, tech={s.tech_scorer}, "
+        f"exclude={s.label_exclude or '-'}, facts_drive={'yes' if s.facts_drive else 'no'}"
+    )
+
+
 def prompt_hash() -> str:
     text = (
         prompts.system_prompt() + inspect.getsource(prompts.user_prompt) + inspect.getsource(prompts.format_transcript)
@@ -260,8 +269,8 @@ def append_ablation(per_run: list[dict], args) -> None:
     header = [
         "# Ablations", "", "One row per configuration (docs/EVALUATION.md). Values are mean [min-max] across runs.", "",
         "| tag | date | commit | mode | runs | model | design | aggregation | temp | thinking | prompt hash | pairwise "
-        "| exact | within one | MAE | bias | weakness recall | balanced | feedback recall |",
-        "|" + "---|" * 19,
+        "| exact | within one | MAE | bias | weakness recall | balanced | feedback recall | settings |",
+        "|" + "---|" * 20,
     ]  # fmt: skip
     n = per_run[0]["n"]
 
@@ -276,6 +285,7 @@ def append_ablation(per_run: list[dict], args) -> None:
         fmt(col(lambda r: r["bias"]), "signed"), fmt(col(lambda r: ev.ratio(r["recall"]["all"]["weak"])), "pct"),
         fmt(col(lambda r: ev.balanced_accuracy(r["recall"]["all"])), "pct"),
         fmt(col(lambda r: ev.ratio(r["feedback"]["all"]) if "feedback" in r else None), "pct"),
+        switches(),
     ]  # fmt: skip
     existing = path.read_text(encoding="utf-8").rstrip("\n").splitlines() if path.exists() else header
     path.write_text("\n".join([*existing, "| " + " | ".join(row) + " |"]) + "\n", encoding="utf-8")

@@ -5,8 +5,9 @@ Usage: python scripts/leak_audit.py [--dump]
   (b) tokens fuzzy-matching an original display-name token, split at 85: >= 85 must be 0; 70-84 is checked
       against the human labels in .cache/leak_review_labels.json (labelled names left must be 0; names the ASR
       turned into dictionary words are accepted and counted separately)
-  (c) over-scrub: common English words replaced, as a share of tutor words (<= 0.5% per class)
-Gate D16 needs all three; unlabelled 70-84 matches leave it pending review.
+  (c) over-scrub: common English words replaced, as a share of tutor words (target <= 0.5% per class; a
+      monitored utility metric, not part of the gate, DECISIONS D17)
+Gate D16 is (b) only; unlabelled 70-84 matches leave it pending review.
   --dump  writes matched (b) tokens to .cache/leak_audit_hits.json for local review; contains real names,
           never print it, paste it or commit it.
 demo/1 is listed but not gated: its transcript is English ASR of Malayalam speech (noise).
@@ -92,12 +93,12 @@ def audit() -> tuple[list[list[str]], str, dict]:
         dump[item.key] = lc.hits
     if labels is None:
         return rows, f"Gate D16: not checked ({labels_path.name} missing); hits >= 85: {high_total}", dump
-    fail = high_total or names_left_total or over_scrub_failures
+    fail = high_total or names_left_total  # over-scrub is monitored, not gated (D17)
     verdict = "FAIL" if fail else "PENDING REVIEW" if unlabelled_total else "PASS"
     line = (
         f"Gate D16: {verdict} (hits >= 85: {high_total}, labelled names left: {names_left_total}, "
-        f"classes over {OVER_SCRUB_MAX:.1%} over-scrub: {over_scrub_failures}, "
-        f"unlabelled 70-84 to review: {unlabelled_total})"
+        f"unlabelled 70-84 to review: {unlabelled_total}); over-scrub, monitored not gated: "
+        f"{over_scrub_failures} classes over {OVER_SCRUB_MAX:.1%}"
     )
     return rows, line, dump
 
