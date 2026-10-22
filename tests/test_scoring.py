@@ -16,10 +16,12 @@ ALL_LLM = ["opening_rapport", "individual_engagement", "communication", "closure
 
 @pytest.fixture(autouse=True)
 def phase1_scoring(monkeypatch):
-    """These tests cover the base scoring rules: LLM-scored technical quality, nothing left out of the label
-    (the A1 switches are tested in test_ablations.py)."""
+    """These tests cover the base scoring rules: problem-count label, LLM-scored technical quality, nothing left
+    out of the label (the ablation switches are tested in test_ablations.py)."""
     monkeypatch.setenv("TECH_SCORER", "llm")
     monkeypatch.setenv("LABEL_EXCLUDE", "none")
+    monkeypatch.setenv("AGGREGATION", "problems")
+    monkeypatch.setenv("FACTS_DRIVE", "false")
     config.get_settings.cache_clear()
     yield
     config.get_settings.cache_clear()

@@ -32,7 +32,8 @@ Scale: 1 = absent or poor, 2 = present but weak, 3 = clearly good, 4 = exemplary
 
 ## Label mapping and aggregation (DECISIONS D12; thresholds not fitted to the 10 samples)
 - Dataset folders: excellent -> Excellent, good -> Good, average -> Average, weak -> Poor, quality issue -> Poor (+ technical flag), demo -> unlabelled.
-- Shipped rule (AGGREGATION=problems): each criterion scored <= 2 is a problem; 0 -> Excellent, 1 -> Good, 2 -> Average, 3+ -> Poor. Fewer than 3 scored criteria -> placeholder label with a warning.
+- Shipped rule (AGGREGATION=severity, DECISIONS D18): critical problems (no rapport before content, tutor face in < 60% of camera frames; no 8x8 background once measured) -> Poor; moderate problems (no homework, no closing recap, low energy unless excluded by D15, > 20% dark frames): 2+ -> Average, 1 -> Good; 0 -> Excellent only with engagement 4 and opening >= 3, else Good. Fewer than 3 scored criteria -> placeholder label with a warning.
+- Reported alongside (AGGREGATION=problems, D12): each counted criterion scored <= 2 is a problem; 0 -> Excellent, 1 -> Good, 2 -> Average, 3+ -> Poor.
 - Reported alongside (AGGREGATION=mean): weighted mean m; Excellent >= 3.4; Good >= 2.8; Average >= 2.2; else Poor.
 - Face missing in > 40% of sampled frames -> warning only until screen-share frames are excluded reliably (E6). Transcript unusable (e.g. wrong-language ASR) -> confidence low, say so explicitly.
 - Key facts (homework assigned and what, new joiners invited, children greeted by name, recap) come from the direct judge with verified quotes; shown in the report, not scored.

@@ -22,7 +22,7 @@ class Settings(BaseModel):
     judge_timeout_s: float = 180.0
     judge_thinking: str = "disabled"  # "enabled" | "disabled" (DECISIONS D9)
     judge_design: str = "direct"  # "direct" | "facts" (EXPERIMENTS, M6b)
-    aggregation: str = "problems"  # "problems" | "mean" (DECISIONS D12) | "severity" (ablation A3)
+    aggregation: str = "severity"  # "severity" (A3 kept, D18) | "problems" (D12) | "mean"
     # Ablation switches (docs/EVALUATION.md); defaults are the last kept configuration
     judge_evidence_first: bool = True  # A0 (kept, E13): reasons before the score in the judge's example
     tech_scorer: str = "code"  # A1 (kept, E14): "llm" | "code" (DECISIONS D14)
