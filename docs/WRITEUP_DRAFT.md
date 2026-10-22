@@ -1,28 +1,29 @@
 # Write-up (draft, max 300 words)
 
-**Approach.** Code measures what it can: talk statistics, warm-up length, face visibility, lighting and connectivity incidents. An LLM (DeepSeek) scores a rubric built from the organiser's feedback and must quote the transcript. Code checks every quote, and a fixed written rule turns the findings into the label. Ten labelled classes are too few to train on, and a written rule makes every label explainable. Audio and video stay on the server; the LLM sees only pseudonymised text and numbers.
+**Approach.** Code measures what it can: talk statistics, warm-up length, face visibility, lighting and connectivity incidents. An LLM (DeepSeek) scores a rubric built from the organiser's feedback and must quote the transcript. Code checks every quote, and a fixed written rule turns the findings into the label. Ten labelled classes are too few to train on; a written rule keeps labels explainable. Audio and video stay on the server; the LLM sees only pseudonymised text and numbers.
 
 **What worked.** On the 10 labelled classes:
-- pairwise ordering 88% (trivial baseline 50%);
-- within one level 9.7/10;
-- exact label 5/10 (always "Poor" gets 4/10);
-- 100% of quotes verified;
+- pairwise ordering 83% (chance 50%);
+- within one level 9.7/10 (always "Average" gets 8/10);
+- exact label 4/10, no better than always "Poor" (4/10);
+- 99% of quotes verified;
 - identical labels across 3 runs for 9 classes;
-- 86% of the organiser's points visible in the transcript caught.
+- 87% of the organiser's points visible in the transcript caught;
+- both input paths pass the privacy audit.
 
 **What failed.**
 - LLM scores bunched at 3. A weighted mean never produced Poor, and "energy and warmth" got 3 almost everywhere (E10).
 - The LLM rated technical quality 2 for nearly every class, so code scores it now (D14).
-- A guard against false "no rapport" findings cleared all of them, since nearly every class has some greeting. Poor vanished until rapport was measured as warm-up time (E17, E18).
+- A guard against false "no rapport" findings cleared them all (nearly every class has some greeting); Poor vanished until rapport became warm-up time (E17, E18).
 - LLM tutor/student tagging of whisper output barely beat "everyone is the tutor": 65-72% vs 55-64% (E21).
-- Whisper ran 2-3x slower than a short test clip suggested, so only 18 minutes per class are transcribed (E21, E22).
-- The numeric confidence was higher on wrong labels, so the report dropped it.
+- Whisper ran 2-3x slower than a test clip suggested, so only parts of each class are transcribed (E21, E22).
+- Numeric confidence was higher on wrong labels; the report dropped it.
 
 **Limitations.**
 - Voice energy and the 8x8 background are not measured.
 - The face check is unvalidated: the screen-share tag matched hand labels on 74% of frames.
-- The same 10 classes shaped the rules, so the numbers are optimistic, and the rule is harsh (bias -0.53).
-- Without a VTT, speakers are unknown, and both classes tested that way changed label.
+- The same 10 classes shaped the rules, so the numbers are optimistic, and the rule is harsh (bias -0.43).
+- Without a VTT, speakers are unknown and labels are less reliable.
 
 ---
 
