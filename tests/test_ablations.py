@@ -22,7 +22,7 @@ def env(monkeypatch):
 
 
 def test_evidence_first_puts_score_last(env):
-    env(JUDGE_EVIDENCE_FIRST="false")
+    env(JUDGE_EVIDENCE_FIRST="false", FACTS_DRIVE="false")
     assert list(prompts.example()["criteria"][0])[1] == "score"  # baseline: score straight after the id
     env(JUDGE_EVIDENCE_FIRST="true")
     ex = prompts.example()
