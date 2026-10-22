@@ -154,6 +154,30 @@ def test_common_word_resembling_short_name_survives():
     assert t.turns[0].text == "you need to move. Need help?"
 
 
+def test_capitalised_mid_sentence_common_word_name_is_scrubbed():
+    # "Need" is 75% similar to "Neel" and ordinary English, but capitalised mid-sentence it reads as the name
+    t, _ = anonymise(_vtt(("Priya Raman", "well played Need, now the rook"), ("Neel Shah", "ok")))
+    assert t.turns[0].text == "well played [NAME], now the rook"
+
+
+def test_common_word_name_survives_in_lowercase_and_at_sentence_start():
+    for text in ("you need to move", "Need help? Need a hint", "Good. Need to think! Need more time"):
+        t, _ = anonymise(_vtt(("Priya Raman", text), ("Neel Shah", "ok")))
+        assert t.turns[0].text == text
+
+
+def test_capitalised_chess_term_resembling_a_name_survives():
+    # "Castle" is 83% similar to "Castel" (loose band) but is on the chess allowlist
+    t, _ = anonymise(_vtt(("Priya Raman", "now you can Castle on the King side"), ("Castel Roy", "ok")))
+    assert t.turns[0].text == "now you can Castle on the King side"
+
+
+def test_leak_counts_track_capitalised_hits():
+    lc = leak_counts("TUTOR: you need it. well played Need", "", ["Neel Shah"])
+    assert {w for w, _, _ in lc.hits} == {"need"} and lc.capitalised == {"need"}
+    assert leak_counts("TUTOR: you need it", "", ["Neel Shah"]).capitalised == set()
+
+
 def test_rare_mangled_name_is_scrubbed():
     # "tenvica" is 71% similar to "Tanvika": too far to claim it is S1, close enough to be a name
     t, _ = anonymise(_vtt(("Priya Raman", "good try tenvica, now the rook"), ("Tanvika Rao", "ok")))

@@ -51,7 +51,7 @@ Final configuration, VTT path with video, 3 judge runs (scorecard tag `final`, 2
 | - points audible only in the voice | 56% of 6 | - |
 | Evidence validity (quotes found in the transcript) | 100% [99-100] of ~191 quotes per run | - |
 | Run agreement (same label in all 3 runs) | 9 / 10 classes | - |
-| Privacy gate (no names sent to the judge) | 0 name matches at >= 85% similarity, 0 known names left; 4 borderline matches awaiting human review | - |
+| Privacy gate (no names sent to the judge) | **Failing**: 0 name matches at >= 85% similarity and all borderline matches reviewed, but 2 reviewed names (1 occurrence each, at a sentence start) still reach the judge (E24) | - |
 
 Trivial baselines in full ([eval/scorecard.md](eval/scorecard.md)):
 

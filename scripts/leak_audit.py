@@ -3,8 +3,8 @@
 Usage: python scripts/leak_audit.py [--dump]
   (a) capitalised tokens not in the allowlist, pseudonyms or fixed prompt template
   (b) tokens fuzzy-matching an original display-name token, split at 85: >= 85 must be 0; 70-84 is checked
-      against the human labels in .cache/leak_review_labels.json (labelled names left must be 0; names the ASR
-      turned into dictionary words are accepted and counted separately)
+      against the human labels in .cache/leak_review_labels.json (labelled names left must be 0; a labelled name
+      that is also a dictionary word and occurs only in lowercase is accepted and counted separately, D16)
   (c) over-scrub: common English words replaced, as a share of tutor words (target <= 0.5% per class; a
       monitored utility metric, not part of the gate, DECISIONS D17)
 Gate D16 is (b) only; unlabelled 70-84 matches leave it pending review.
@@ -47,7 +47,7 @@ def joined(messages: list[dict]) -> str:
 
 
 HEADER = ["class", "turns", "(a) caps", "(a) distinct", "(b) >= 85", "(b) 70-84", "(b) labelled names left",
-          "(b) accepted word-like names", "(b) unlabelled 70-84", "(c) over-scrub"]  # fmt: skip
+          "(b) accepted word-like names, lowercase only", "(b) unlabelled 70-84", "(c) over-scrub"]  # fmt: skip
 
 
 def audit() -> tuple[list[list[str]], str, dict]:
@@ -74,8 +74,12 @@ def audit() -> tuple[list[list[str]], str, dict]:
             names_left = accepted = unlabelled = "-"
         else:
             known = dict(map(tuple, labels.get(item.key, [])))
-            # D16 exception: a labelled name the ASR turned into an ordinary dictionary word cannot identify a child
-            accepted = sum(known.get(w) == "name" and is_common_word(w, COMMON_ZIPF) for w, _, _ in band)
+            # D16 exception: a labelled name that is also an ordinary dictionary word and is left only in lowercase,
+            # i.e. used as the word; capitalised forms are scrubbed mid-sentence and count as names left otherwise
+            accepted = sum(
+                known.get(w) == "name" and is_common_word(w, COMMON_ZIPF) and w not in lc.capitalised
+                for w, _, _ in band
+            )
             names_left = sum(known.get(w) == "name" for w, _, _ in band) - accepted
             unlabelled = sum(w not in known for w, _, _ in band)
             if item.key not in NOT_GATED:

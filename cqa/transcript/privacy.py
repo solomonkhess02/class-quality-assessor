@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import difflib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache
 
 from rapidfuzz import fuzz
@@ -113,7 +113,14 @@ def _replace_names(
                 best, best_score = pseudo, score
         if best_score >= FUZZY_MIN:
             return best
-        return NAME_TOKEN if best_score >= name_min and not is_common_word(tok, common_zipf) else tok
+        if best_score < name_min:
+            return tok
+        # Loose band: a common word is kept, unless it is capitalised mid-sentence, where it reads as the name
+        # (names that are also common words, D16 review); at a turn or sentence start the capital says nothing
+        if not is_common_word(tok, common_zipf):
+            return NAME_TOKEN
+        mid_sentence = tok[0].isupper() and not _SENTENCE_START.search(m.string[: m.start()])
+        return NAME_TOKEN if mid_sentence else tok
 
     return _WORD_TOKEN.sub(fuzzy_sub, text)
 
@@ -231,6 +238,7 @@ class LeakCounts:
     name_hits: int  # (b) tokens fuzzy-matching a display-name token at >= AUDIT_FUZZY_MIN
     names_hit: int  # distinct display-name tokens matched
     hits: list[tuple[str, str, float]]  # (token, name token, score); local dump only
+    capitalised: set[str] = field(default_factory=set)  # hit tokens written capitalised at least once
 
 
 def leak_counts(text: str, template: str, display_names: list[str]) -> LeakCounts:
@@ -246,12 +254,15 @@ def leak_counts(text: str, template: str, display_names: list[str]) -> LeakCount
             key = (w.lower(), w.islower())
             counts[key] = counts.get(key, 0) + 1
     best_by_token: dict[str, tuple[float, str]] = {}
+    capitalised: set[str] = set()
     n_hits = 0
     for (w, lower), n in counts.items():
         best = max(((fuzz.ratio(w, x), x) for x in (lower_names if lower else names)), default=(0.0, ""))
         if best[0] >= AUDIT_FUZZY_MIN:
             n_hits += n
             best_by_token[w] = max(best_by_token.get(w, best), best)
+            if not lower:
+                capitalised.add(w)
     hits = [(w, name, round(score, 1)) for w, (score, name) in best_by_token.items()]
     return LeakCounts(
         caps=len(caps),
@@ -259,6 +270,7 @@ def leak_counts(text: str, template: str, display_names: list[str]) -> LeakCount
         name_hits=n_hits,
         names_hit=len({n for _, n, _ in hits}),
         hits=hits,
+        capitalised=capitalised,
     )
 
 
