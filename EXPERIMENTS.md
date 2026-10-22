@@ -281,3 +281,25 @@ Append-only. Each entry: hypothesis, method, result, decision. No real names or 
 
 - Result: agreement 14/19 = 74%, below the 85% bar, so FACE_CHECK_CRITICAL stays false. Errors go both ways: 2 real screen shares tagged camera (good B552, quality issue B441) and 3 tutor-visible frames tagged share (excellent B472 x2, average B516). YuNet found a face in 6/6 "both" frames and 4/4 camera frames at 640 px, so the hypothesis that it misses small thumbnail faces is not supported; no full-resolution thumbnail check is proposed. The 3 sampled average B435 frames were all tagged correctly and good B435 was not sampled, so this sample does not explain the low face share of both B435 classes.
 - Decision: keep the face check moderate. The weak part is the flat-block screen-share tag, not face detection. Next, if face matters again: a second sheet of ~20 camera-tagged frames without a face, stratified on the two B435 classes (about 10 minutes of labelling), to see whether those frames are shares, camera-off tiles or a tutor looking away.
+
+## E18 (22 Oct): A3c, rapport measured from the warm-up before content
+- Change (D20, thresholds fixed before results): the judge quotes the first line of lesson content (content_start). Code measures warm_up_min (first tutor greeting -> content_start) and warm_up_students (distinct students with a turn of >= 4 words in that window). rapport_before_content = "no" if < 2 students or < 2 min, "yes" if >= 3 students and >= 3 min, else unknown; no verified content_start -> unknown. Replaces A3b's greeting guard; the homework guard stays. Implementation choice not in the definition: no tutor greeting before content_start -> warm-up 0 min / 0 students (so "no").
+- Bug found by the synthetic tests: quote verification also matched a quote against two adjacent turns, so when the turn before the quoted line was short, the pair scored 100 too and, as the earlier turn, won the tie; the verified timestamp then moved one turn early (it would have shortened every warm-up). Single-turn matches now win ties (the pair score carries a 1-point penalty), for all evidence.
+- Method: --runs 3 --tag a3c_rapport_warmup, commit 80cb576 (the run was interrupted by an exhausted DeepSeek balance at 17/36 and resumed; stored assessments and cached judge calls were reused). Reference = A3b (kept by override, D20).
+
+| class | true | warm_up_min / students (runs) | rapport fact | organiser opening expectation | notes/points mentioning rapport |
+|---|---|---|---|---|---|
+| excellent/B472 | Excellent | 8.1/2, 16/3, 16/3 | unknown, yes, yes | good | 2 of 5 |
+| excellent/B491 | Excellent | 4.1/3, 14.1/7, 14.9/7 | yes x3 | - | 0 of 6 |
+| good/B552 | Good | 5.5/2 x3 | unknown x3 | good | 1 of 5 |
+| good/B435 | Good | 0/0 x3 | no x3 | good | 2 of 5 |
+| average/B516 | Average | 0.9/1 x3 | no x3 | - | 0 of 6 (by keyword; the user reads its notes as early individual engagement) |
+| average/B435 | Average | 1.6/0 x3 | no x3 | - | 0 of 8 |
+| quality issue/B392 | Poor | 0.6/1 x3 | no x3 | - | 0 of 5 |
+| quality issue/B441 | Poor | 4.7/1 x3 | no x3 | weak | 2 of 5 |
+| weak/B482 | Poor | 2.7/1 x3 | no x3 | weak | 3 of 6 |
+| weak/B558 | Poor | 1.9/1 x3 | no x3 | weak | 3 of 6 |
+
+- Result (mean [min-max]; A3b in brackets): pairwise 77% [76-78] (75%); exact 5.0/10 (3.0); within one 8.7 (9.3); MAE 0.63 (0.77); bias -0.63 [-0.70 to -0.60] (+0.03); weakness recall 50% (46%); strength recall 90% (88%); balanced 70% (67%); feedback recall 66% (61%); run agreement 9/10; confidence correct 0.75 vs wrong 0.75 (with run agreement 0.88 vs 0.84).
+- Reading: the warm-up separates the extremes (both Excellent classes 4-16 min with 2-7 children talking; all 4 Poor classes "no", 3 of them with < 2 min or 1 child), and Poor detection is back (12/12). But "no warm-up" does push both Average classes to Poor in every run (B435 1.6 min / 0 children, B516 0.9 min / 1 child), and good B435 to Poor. B516 fits the user's hypothesis that rapport can happen through early individual questioning rather than a separate chat; the rule is not changed. Good B435's 0/0 is a measurement artefact: its quoted content line is at 4:00 while the speaker identified as tutor has no turn before 6:26 (4 children spoke before content), so no tutor greeting is found and the no-greeting choice above makes it "no".
+- Keep rule (reference A3b): pairwise +2.3 points is within the 4-point band; weakness recall +0.7 of 18 (< 2/18); |bias| 0.03 -> 0.63 (worse). **The rule picks A3b.** A3c stays in the code for now (rapport measured from the transcript rather than a guard), pending the user's decision; the two open measurement questions are the no-greeting case (should be unknown, by "unknown is never a problem") and tutor identification when the teaching account changes.
