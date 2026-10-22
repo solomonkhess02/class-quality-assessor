@@ -37,15 +37,15 @@ Measured on the 10 labelled sample classes, with repeated judge runs ([docs/EVAL
 
 | Metric | Result |
 |---|---|
-| Exact label | `<EXACT>` / 10 |
-| Within one level | `<WITHIN_ONE>` / 10 |
-| Pairwise order agreement | `<PAIRWISE>` |
-| Bias (mean predicted - true level) | `<BIAS>` |
-| Same label across repeated runs | `<RUN_AGREEMENT>` |
-| Criterion agreement with organiser notes | `<CRITERION_AGREEMENT>` |
-| Privacy gate (no names sent to the judge) | `<LEAK_GATE>` |
+| Exact label | 5 / 10 (all 3 runs) |
+| Within one level | 9.7 / 10 (mean of 3 runs, range 9-10) |
+| Pairwise order agreement | 88% of 36 class pairs |
+| Bias (mean predicted - true level) | -0.53 (harsh: both Average classes are rated Poor, both Excellent classes Good) |
+| Same label across repeated runs | 9 / 10 classes |
+| Criterion agreement with organiser notes | 73% balanced (96% of praised points, 50% of criticised points) |
+| Privacy gate (no names sent to the judge) | 0 name matches at >= 85% similarity, 0 known names left; 4 borderline matches awaiting human review |
 
-The label rule was written from the organiser's notes on these same 10 classes, so these numbers are optimistic.
+Final configuration, 3 runs on the VTT path, 22 Oct ([eval/scorecard.md](eval/scorecard.md)). Trivial baselines: always "Poor" gets 4/10 exact and 50% pairwise. The label rule was written from the organiser's notes on these same 10 classes, so these numbers are optimistic.
 
 ## Privacy
 - Audio, video and frames never leave the server. Transcription (whisper.cpp) and face detection (OpenCV) run locally.

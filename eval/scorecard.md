@@ -1,6 +1,6 @@
-# Scorecard: a3d_rapport_unknown
+# Scorecard: final
 
-2026-10-22, commit 3b85c89, 3 runs, VTT + visual. Judge deepseek-flash, design direct, aggregation severity, temperature 0.2, thinking disabled, prompt hash 997d6ef78f15.
+2026-10-22, commit a798bb9, 3 runs, VTT + visual. Judge deepseek-flash, design direct, aggregation severity, temperature 0.2, thinking disabled, prompt hash 997d6ef78f15.
 Values are mean [min-max] across runs. Labels: weak and quality issue -> Poor. Criterion points: score <= 2 catches a criticised point, >= 3 a praised one; unscored counts as missed.
 
 | metric | value | target | n |
