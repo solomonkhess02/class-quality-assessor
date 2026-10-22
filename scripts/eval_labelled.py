@@ -22,6 +22,7 @@ import sys
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
+from functools import cache
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -135,6 +136,7 @@ def fmt(values: list[float | None], kind: str) -> str:
     return f"{mean:.2f} [{lo:.2f}-{hi:.2f}]"
 
 
+@cache  # read once at startup, so edits made while runs are going don't change the record
 def git_commit() -> str:
     sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=REPO_ROOT)
     dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], capture_output=True, text=True,
@@ -151,6 +153,7 @@ def switches() -> str:
     )
 
 
+@cache
 def prompt_hash() -> str:
     text = (
         prompts.system_prompt() + inspect.getsource(prompts.user_prompt) + inspect.getsource(prompts.format_transcript)
@@ -302,6 +305,7 @@ def main() -> None:
     truth = load_ground_truth(s.data_dir)
     items = [i for i in discover(s.classes_dir, probe_duration=media.probe_duration) if i.vtt]
     out = s.cache_dir / "eval" / args.tag
+    print(f"commit {git_commit()}, prompt hash {prompt_hash()}, {switches()}", flush=True)
 
     if not args.skip_visual:  # warm the frame cache once, so parallel runs only read it
         print("Warming the frame cache", flush=True)
