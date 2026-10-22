@@ -208,3 +208,25 @@ Append-only. Each entry: hypothesis, method, result, decision. No real names or 
 - Change: a display-name token with wordfreq zipf >= 4.5 (e.g. "Will") is replaced only when capitalised, both by the exact pattern and by the fuzzy pass. The audit applies the same rule (lowercase occurrences are not matched against such tokens). D16 now has the documented exception from E11b (a name the ASR turned into a dictionary word is accepted and counted in its own column), and the gate includes over-scrub, matching docs/EVALUATION.md.
 - Result: only 6 classes have a display-name token at zipf >= 4.5, and it occurs in lowercase in tutor speech only in B472 (1x) and B441 (3x). Over-scrub: B472 0.76% -> 0.71%, B441 0.71% -> 0.62%, B516 unchanged at 1.11% (its over-scrub is [NAME] scrubs of words with zipf 3.5-4.0, E11b). Other classes stay at or below 0.39%. Gate D16: FAIL on over-scrub alone (3 classes above 0.5%); (b) >= 85 = 0, labelled names left = 0, 1 accepted word-like name, 4 unlabelled 70-84 matches awaiting review.
 - Decision: keep the rule (it is correct: a lowercase verb is not the child). The over-scrub target is still missed after the timebox; numbers logged, moving on. Most of what is left comes from display-name tokens with zipf 3.5-4.5 and from [NAME] scrubs of zipf 3.5-4.0 words; some of it is probably correct scrubbing of names that are also words.
+
+## E12 (22 Oct): Baseline v2, 3 runs, evaluation harness v2
+- Method: scripts/eval_labelled.py --runs 3 --tag baseline, current pipeline unchanged (VTT + visual, deepseek-flash, direct design, problem-count rule, temperature 0.2, prompt hash 100cb76c421f, commit 179858d). Runs are separate judge calls (the run index is part of the cache key). Metrics as in docs/EVALUATION.md, mean [min-max] across runs. Full tables: eval/scorecard.md; row in eval/ablations.md.
+- Result:
+
+| metric | baseline v2 | Phase 1 (1 run) | target |
+|---|---|---|---|
+| Pairwise ordering (primary) | 66% [64-68%] | 71% | >= 80% |
+| Exact / within one | 4.3 [4-5] / 7.7 [7-8] of 10 | 4 / 8 | - / >= 9 |
+| MAE / bias | 0.80 [0.70-0.90] / -0.47 [-0.70 to -0.30] | 0.80 / -0.60 | <= 0.6 / +-0.3 |
+| Weakness recall | 61% [61-61%] | 61% | >= 75% |
+| Strength recall / balanced | 86% [82-88%] / 74% [72-75%] | 88% / 75% | - / >= 75% |
+| Feedback recall (47 points) | 66% [62-68%] | - | >= 60% |
+| Evidence validity / genericness | 100% / 12% [10-13%] | 100% / - | >= 95% / <= 20% |
+| Run agreement | 8/10 | - | >= 8/10 |
+
+  1. Noise band of the primary metric: 64-68% (4 points). Run-to-run variation is small: mean criterion score range 0.08, 8/10 labels identical in all runs. The unstable classes are excellent B472 (Good / Excellent / Average) and good B552 (Excellent / Excellent / Average).
+  2. Phase 1's 71% pairwise lies above the band. Phase 1's 61% weakness recall lies inside it (all three runs give exactly 11/18). Between Phase 1 and now the judge input changed (the [NAME] second pass, the lowercase and loose-band fuzzy passes, and one line of the system prompt explaining [NAME]), so the 3-5 point drop may come from the privacy changes rather than noise. Not tested here. Most of the drop comes from good B435, now 4 problems in every run, which sits below Average B516 (2) and level with Poor B441.
+  3. Feedback recall by source: transcript-observable 85% (28 points), voice-only 53% (6), video-observable 26% (12). Video points are the biggest gap, as expected without an 8x8 background check or camera-off stretches.
+  4. Per criterion: communication weakness recall 0/5 in every run (as in E10). visual_presence catches 2 of 4 criticised points. opening_rapport strength recall varies most (33-67%).
+  5. Confidence is 1.00 for every class, right or wrong, so it carries no information. The grader cited a line not in the report 0 times. The privacy gate fails on over-scrub (E11c).
+- Decision: this is the reference for ablations; the keep rule uses the 4-point band. Before A0, check whether the privacy changes cost pairwise accuracy (one config change: run with the E11 scrubber, 3 runs) so the drop is not wrongly attributed to a later ablation. Grader spot-check for 3 classes: .cache/eval/baseline/feedback_spotcheck.md (local), awaiting the user's review.

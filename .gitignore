@@ -25,8 +25,10 @@ logs/raw/
 # downloaded by setup.ps1
 models/*.onnx
 models/*.bin
-# eval: only results.md (IDs and numbers) is committed
+# eval: only the markdown reports (IDs and numbers) are committed
 eval/*
 !eval/results.md
+!eval/scorecard.md
+!eval/ablations.md
 # local Claude Code settings
 .claude/settings.local.json
