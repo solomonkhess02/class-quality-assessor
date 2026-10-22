@@ -166,3 +166,53 @@ def test_facts_drive_prompt_switch(env):
     on = prompts.system_prompt()
     assert "rapport_before_content" not in off
     assert "each_child_asked_individually" in on and on.startswith(off.split("Rules:")[0])
+
+
+def test_severity_label_tiers_and_margin():
+    from cqa.scoring import margin_confidence, severity_label
+
+    assert severity_label(["camera"], ["no homework"], True)[:2] == ("Poor", 11)
+    assert severity_label([], ["no homework", "no closing recap", "lighting"], False) == ("Average", 3, 2)
+    assert severity_label([], ["no homework"], True) == ("Good", 1, 1)
+    assert severity_label([], [], True) == ("Excellent", 0, 1)
+    assert severity_label([], [], False) == ("Good", 0.5, 1)  # no problems but no positive evidence
+    assert margin_confidence(1) == 0.75 and margin_confidence(5) == 1.0
+
+
+def test_severity_findings(env):
+    from cqa.schemas import CriterionResult as C
+    from cqa.scoring import severity_findings
+
+    crits = [C(id="opening_rapport", score=3), C(id="individual_engagement", score=4), C(id="communication", score=2)]
+    visual = _visual(0).model_copy(update={"pct_face_camera": 30.0, "pct_dark": 50.0})
+    env(FACTS_DRIVE="true", LABEL_EXCLUDE="communication")
+    from cqa.config import get_settings
+
+    critical, moderate, positive = severity_findings(crits, _kf(rapport_before_content=False, recap_present=True),
+                                                     visual, get_settings())  # fmt: skip
+    assert critical == ["no rapport before content", "tutor face in only 30% of camera frames"]
+    assert moderate == ["no homework", "lighting: 50% dark frames"]  # low energy not counted: excluded (D15)
+    assert positive
+    env(FACTS_DRIVE="false", LABEL_EXCLUDE="none")
+    critical, moderate, _ = severity_findings(crits, _kf(homework_assigned=True, recap_present=True), None,
+                                              get_settings())  # fmt: skip
+    assert critical == [] and moderate == ["low energy"]  # without A2 the opening score stands in for the fact
+
+
+def test_assess_with_severity_rule(env):
+    from cqa.schemas import CriterionResult as C
+    from cqa.schemas import JudgeOutput
+    from cqa.scoring import assess
+
+    env(AGGREGATION="severity", FACTS_DRIVE="true", TECH_SCORER="code", LABEL_EXCLUDE="communication")
+    judged = JudgeOutput(
+        criteria=[C(id="opening_rapport", score=4), C(id="individual_engagement", score=4),
+                  C(id="communication", score=3), C(id="closure_homework", score=4)],
+        key_facts=_kf(rapport_before_content=True, homework_assigned=True, recap_present=True),
+    )  # fmt: skip
+    visual = _visual(0).model_copy(update={"pct_face_camera": 95.0})
+    a = assess(judged, visual, _stats(60, []), "vtt")
+    assert a.label == "Excellent" and a.meta["severity"] == 0 and a.confidence == 0.75
+    assert a.meta["problems_found"] == [] and 0 <= a.meta["score_100"] <= 100
+    unusable = assess(judged.model_copy(update={"transcript_usable": False}), visual, _stats(60, []), "vtt")
+    assert unusable.confidence == 0.25

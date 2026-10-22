@@ -93,7 +93,8 @@ def grade_once(run_idx: int, assessed: dict[str, Assessment], truth: dict[str, d
 def run_metrics(assessed: dict[str, Assessment], truth: dict[str, dict], graded: dict | None) -> dict:
     true = {k: gt["label"] for k, gt in truth.items() if k in assessed}
     pred = {k: assessed[k].label for k in true}
-    problems = {k: assessed[k].meta["problems"] for k in true}
+    # ordering value: problem count, or the severity value under AGGREGATION=severity (A3)
+    problems = {k: assessed[k].meta.get("severity", assessed[k].meta["problems"]) for k in true}
     scores = {k: {c.id: (None if c.insufficient_evidence else c.score) for c in assessed[k].criteria} for k in true}
     expected = {k: {c: v for c, v in truth[k].items() if v in ("good", "weak")} for k in true}
     ev_total = sum(assessed[k].meta.get("evidence_total", 0) for k in true)
@@ -161,6 +162,17 @@ def prompt_hash() -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:12]
 
 
+def with_agreement(r: dict, per_run: list[dict]) -> tuple[float | None, float | None]:
+    """Mean confidence on correct / wrong labels, where a class's confidence is the mean of the app's confidence
+    and run agreement (share of runs giving that class its most common label)."""
+    agree = {}
+    for k in r["true"]:
+        labels = [x["pred"][k] for x in per_run]
+        agree[k] = max(labels.count(lbl) for lbl in labels) / len(labels)
+    conf = {k: (r["assessed"][k].confidence + agree[k]) / 2 for k in r["true"]}
+    return ev.confidence_separation(r["true"], r["pred"], conf)
+
+
 def scorecard(per_run: list[dict], truth_n: dict, args, gate_line: str) -> list[str]:
     s = get_settings()
     n = per_run[0]["n"]
@@ -172,7 +184,7 @@ def scorecard(per_run: list[dict], truth_n: dict, args, gate_line: str) -> list[
         return ev.ratio(r["recall"][cid][kind]) if cid in r["recall"] else None
 
     rows = [
-        ["Pairwise ordering (problem count, ties 0.5)", fmt(col(lambda r: r["pairwise"]), "pct"), ">= 80%",
+        ["Pairwise ordering (problem count or severity, ties 0.5)", fmt(col(lambda r: r["pairwise"]), "pct"), ">= 80%",
          f"{per_run[0]['n_pairs']} pairs"],
         ["Exact label", fmt(col(lambda r: r["exact"]), f"count/{n}"), "-", str(n)],
         ["Within one level", fmt(col(lambda r: r["within_one"]), f"count/{n}"), f">= 9/{n}", str(n)],
@@ -203,6 +215,10 @@ def scorecard(per_run: list[dict], truth_n: dict, args, gate_line: str) -> list[
         ["Mean criterion score range across runs", "-" if rng is None else f"{rng:.2f}", "-", "class x criterion"],
         ["Confidence on correct labels", fmt(col(lambda r: r["confidence"][0]), "num"), "correct > wrong", "-"],
         ["Confidence on wrong labels", fmt(col(lambda r: r["confidence"][1]), "num"), "", "-"],
+        ["Confidence with run agreement, correct labels", fmt(col(lambda r: with_agreement(r, per_run)[0]), "num"),
+         "correct > wrong", "mean of app confidence and run agreement"],
+        ["Confidence with run agreement, wrong labels", fmt(col(lambda r: with_agreement(r, per_run)[1]), "num"), "",
+         "-"],
         ["Privacy gate (scripts/leak_audit.py)", gate_line.removeprefix("Gate D16: "), "pass", "11 classes"],
     ]  # fmt: skip
 
@@ -256,13 +272,16 @@ def scorecard(per_run: list[dict], truth_n: dict, args, gate_line: str) -> list[
             f"{b['pairwise']:.0%} |"
         )
 
-    lines += ["", "## Per class", "", "| class | true | label per run | problems per run | confidence per run |",
-              "|---|---|---|---|---|"]  # fmt: skip
+    lines += ["", "## Per class", "",
+              "| class | true | label per run | score/100 per run | problems per run | problems found (run 0) "
+              "| confidence per run |", "|---|---|---|---|---|---|---|"]  # fmt: skip
     for k in sorted(true):
         labels = " / ".join(r["pred"][k] for r in per_run)
-        probs = " / ".join(str(r["problems"][k]) for r in per_run)
+        scores = " / ".join(str(r["assessed"][k].meta.get("score_100", "-")) for r in per_run)
+        probs = " / ".join(f"{r['problems'][k]:g}" for r in per_run)
+        found = "; ".join(per_run[0]["assessed"][k].meta.get("problems_found", [])) or "-"
         confs = " / ".join(f"{r['assessed'][k].confidence:.2f}" for r in per_run)
-        lines.append(f"| {k} | {true[k]} | {labels} | {probs} | {confs} |")
+        lines.append(f"| {k} | {true[k]} | {labels} | {scores} | {probs} | {found} | {confs} |")
     return lines
 
 

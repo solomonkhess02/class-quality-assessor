@@ -6,7 +6,16 @@ from typing import Any
 
 from cqa.config import Settings, get_settings
 from cqa.judge.rubric import BY_ID
-from cqa.schemas import Assessment, CriterionResult, JudgeOutput, Label, TextStats, VisualReport, format_ts
+from cqa.schemas import (
+    Assessment,
+    CriterionResult,
+    JudgeOutput,
+    KeyFacts,
+    Label,
+    TextStats,
+    VisualReport,
+    format_ts,
+)
 
 LABELS: list[Label] = ["Poor", "Average", "Good", "Excellent"]
 THRESHOLDS = [(3.4, "Excellent"), (2.8, "Good"), (2.2, "Average")]  # initial guesses (ARCHITECTURE.md)
@@ -129,6 +138,57 @@ def label_excluded(s: Settings | None = None) -> set[str]:
     return {c.strip() for c in s.label_exclude.split(",") if c.strip() and c.strip().lower() != "none"}
 
 
+# Ablation A3 (AGGREGATION=severity): severity-tiered, two-sided label rule, written from the organiser's wording
+# before the run (docs/EVALUATION.md). Derived from the notes on the same 10 classes, so its accuracy there is
+# optimistic.
+SEVERITY_CRITICAL_WEIGHT = 10  # in the ordering value, any critical problem outranks all moderate ones
+
+
+def severity_findings(
+    criteria: list[CriterionResult], kf: KeyFacts | None, visual: VisualReport | None, s: Settings
+) -> tuple[list[str], list[str], bool]:
+    """(critical problems, moderate problems, positive evidence for Excellent)."""
+    score = {c.id: (None if c.insufficient_evidence else c.score) for c in criteria}
+    critical: list[str] = []
+    moderate: list[str] = []
+    if s.facts_drive and kf is not None:
+        if not kf.rapport_before_content:
+            critical.append("no rapport before content")
+    elif score.get("opening_rapport") is not None and score["opening_rapport"] <= 2:  # type: ignore[operator]
+        critical.append("no rapport before content (opening scored <= 2)")
+    if visual is not None and visual.n_frames and visual.pct_face_camera < s.visual_min_face_pct:
+        critical.append(f"tutor face in only {visual.pct_face_camera:.0f}% of camera frames")
+    # "no 8x8 background" is a critical problem in the spec but is not measured yet (ablation A4)
+    if kf is not None and not kf.homework_assigned:
+        moderate.append("no homework")
+    if kf is not None and not kf.recap_present:
+        moderate.append("no closing recap")
+    energy = score.get("communication")
+    if "communication" not in label_excluded(s) and energy is not None and energy <= 2:
+        moderate.append("low energy")
+    if visual is not None and visual.n_frames and visual.pct_dark > s.visual_max_dark_pct:
+        moderate.append(f"lighting: {visual.pct_dark:.0f}% dark frames")
+    positive = score.get("individual_engagement") == 4 and (score.get("opening_rapport") or 0) >= 3
+    return critical, moderate, positive
+
+
+def severity_label(critical: list[str], moderate: list[str], positive: bool) -> tuple[Label, float, int]:
+    """(label, ordering value, margin). Margin = fewest findings that would have to flip to change the label."""
+    if critical:
+        return "Poor", SEVERITY_CRITICAL_WEIGHT * len(critical) + len(moderate), len(critical)
+    n = len(moderate)
+    if n >= 2:
+        return "Average", n, n - 1
+    if n == 1:
+        return "Good", 1, 1
+    return ("Excellent", 0, 1) if positive else ("Good", 0.5, 1)
+
+
+def margin_confidence(margin: int) -> float:
+    """A3 confidence from the distance to the nearest label boundary: 0.75 one flip away, 1.0 two or more."""
+    return 0.5 + 0.25 * min(margin, 2)
+
+
 def confidence(
     criteria: list[CriterionResult],
     evidence_dropped: int,
@@ -175,11 +235,18 @@ def assess(
     problem_label, problems = problem_count_label(counted)
     mean_label = label_for(m) if m is not None else "Average"
     n_scored = sum(1 for c in counted if c.score is not None and not c.insufficient_evidence)
+    found = [c.id for c in counted if c.score is not None and not c.insufficient_evidence and c.score <= 2]
+    margin = None
+    if s.aggregation == "severity":
+        critical, moderate, positive = severity_findings(criteria, judged.key_facts, visual, s)
+        severity_lbl, severity, margin = severity_label(critical, moderate, positive)
+        found = critical + moderate
+        meta.update({"severity": severity, "critical": critical, "moderate": moderate, "severity_label": severity_lbl})
     if n_scored < MIN_SCORED_FOR_LABEL:
         label: Label = "Average"
         warnings.append(f"Only {n_scored} criteria could be scored; the label is a placeholder.")
     else:
-        label = problem_label if s.aggregation == "problems" else mean_label
+        label = {"problems": problem_label, "severity": meta.get("severity_label")}.get(s.aggregation) or mean_label
 
     # The ARCHITECTURE cap ("at most Average") is a warning until screen-share frames are reliably
     # excluded (E6: a Good class shares a board for long stretches and shows a face in only 40% of frames).
@@ -202,6 +269,10 @@ def assess(
         judged.transcript_usable,
         visual is not None,
     )
+    if margin is not None:  # A3: distance to the nearest label boundary; low whenever the input is unreliable
+        conf = margin_confidence(margin)
+        if not judged.transcript_usable or n_scored < MIN_SCORED_FOR_LABEL:
+            conf = min(conf, 0.25)
     meta["transcript_source"] = transcript_source
     meta.update(
         {
@@ -210,6 +281,8 @@ def assess(
             "problems": problems,
             "n_scored": n_scored,
             "label_excluded": sorted(excluded),
+            "problems_found": found,
+            "score_100": round((m - 1) / 3 * 100) if m is not None else None,
             "tech_scorer": s.tech_scorer,
         }
     )
