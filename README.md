@@ -35,6 +35,8 @@ Criteria (from the organiser's feedback on the sample classes): opening and rapp
 ## Evaluation
 Measured on the 10 labelled sample classes, with repeated judge runs ([docs/EVALUATION.md](docs/EVALUATION.md), [eval/scorecard.md](eval/scorecard.md)).
 
+Pairwise ordering was chosen as the primary metric, and within-one as a target, before the experiments ([docs/EVALUATION.md](docs/EVALUATION.md)): with 2 classes per label, exact accuracy moves 10 points per class, and it currently equals the always-Poor baseline.
+
 Final configuration, VTT path with video, 3 judge runs (scorecard tag `final_v2`, 23 Oct). Values are the mean over the runs, with the range in brackets. `final_v2` replaces `final` (22 Oct, [eval/scorecard_final.md](eval/scorecard_final.md)) after a quote-verification bug credited some tutor lines to children (E26). The fix lowered the numbers: one Poor class (B441) is now rated Average. The rules were not re-tuned to win it back.
 
 | Metric | Result | Best trivial baseline |
@@ -77,6 +79,9 @@ Trivial baselines in full ([eval/scorecard.md](eval/scorecard.md)):
 - The judge only receives pseudonymised transcript text (TUTOR, S1, S2, ...; leftover names replaced by [NAME]) and numeric metrics. The name mapping stays in memory. A leak audit fails the release if any name gets through.
 - On the public app, the uploaded transcript, the audio, the frames and the whisper transcript are deleted as soon as the assessment finishes. The recording is kept only so the ▶ buttons can play it, and is purged after 2 hours. Only one assessment runs at a time.
 - No recordings, transcripts or derived files are stored in this repository.
+- A passing leak audit reduces risk but is not a guarantee; lowercase names that are also English words can still get through on the no-transcript path.
+
+**Data handling.** The brief lists no permitted services. Audio and video never leave the server; only pseudonymised transcript text and numbers go to the LLM judge. The judge provider is configurable: any OpenAI-compatible endpoint, including a self-hosted model, can be set with `DEEPSEEK_BASE_URL` and `JUDGE_MODEL`, so the app can be switched to an approved service. During development, the 12 sample transcripts were sent to DeepSeek in pseudonymised form.
 
 ## Limitations
 - Voice energy and tone are not measured, only the words. The 8x8 branded background is not checked yet.
