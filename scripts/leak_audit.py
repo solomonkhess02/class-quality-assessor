@@ -3,8 +3,10 @@
 Usage: python scripts/leak_audit.py [--dump]
   (a) capitalised tokens not in the allowlist, pseudonyms or fixed prompt template
   (b) tokens fuzzy-matching an original display-name token, split at 85: >= 85 must be 0; 70-84 is checked
-      against the human labels in .cache/leak_review_labels.json (labelled names left must be 0; DECISIONS D16)
-  (c) over-scrub: common English words replaced, as a share of tutor words (target <= 0.5%)
+      against the human labels in .cache/leak_review_labels.json (labelled names left must be 0; names the ASR
+      turned into dictionary words are accepted and counted separately)
+  (c) over-scrub: common English words replaced, as a share of tutor words (<= 0.5% per class)
+Gate D16 needs all three; unlabelled 70-84 matches leave it pending review.
   --dump  writes matched (b) tokens to .cache/leak_audit_hits.json for local review; contains real names,
           never print it, paste it or commit it.
 demo/1 is listed but not gated: its transcript is English ASR of Malayalam speech (noise).
@@ -24,11 +26,19 @@ from cqa.config import get_settings  # noqa: E402
 from cqa.dataset import discover  # noqa: E402
 from cqa.features.text_stats import compute_text_stats  # noqa: E402
 from cqa.judge.prompts import build_messages  # noqa: E402
-from cqa.transcript.privacy import FUZZY_MIN, anonymise, leak_counts, over_scrub_share  # noqa: E402
+from cqa.transcript.privacy import (  # noqa: E402
+    COMMON_ZIPF,
+    FUZZY_MIN,
+    anonymise,
+    is_common_word,
+    leak_counts,
+    over_scrub_share,
+)
 from cqa.transcript.roles import assign_roles  # noqa: E402
 from cqa.transcript.vtt import parse_vtt  # noqa: E402
 
 NOT_GATED = {"demo/1"}
+OVER_SCRUB_MAX = 0.005
 
 
 def joined(messages: list[dict]) -> str:
@@ -43,7 +53,7 @@ def main() -> None:
     labels_path = s.cache_dir / "leak_review_labels.json"
     labels = json.loads(labels_path.read_text(encoding="utf-8"))["labels"] if labels_path.exists() else None
     rows, dump = [], {}
-    high_total = names_left_total = 0
+    high_total = names_left_total = unlabelled_total = over_scrub_failures = 0
     for item in discover(s.classes_dir, probe_duration=media.probe_duration):
         if not item.vtt:
             continue
@@ -58,24 +68,29 @@ def main() -> None:
         high = [h for h in lc.hits if h[2] >= FUZZY_MIN]
         band = [h for h in lc.hits if h[2] < FUZZY_MIN]
         if labels is None:
-            names_left = unlabelled = "-"
+            names_left = accepted = unlabelled = "-"
         else:
             known = dict(map(tuple, labels.get(item.key, [])))
-            names_left = sum(known.get(w) == "name" for w, _, _ in band)
+            # D16 exception: a labelled name the ASR turned into an ordinary dictionary word cannot identify a child
+            accepted = sum(known.get(w) == "name" and is_common_word(w, COMMON_ZIPF) for w, _, _ in band)
+            names_left = sum(known.get(w) == "name" for w, _, _ in band) - accepted
             unlabelled = sum(w not in known for w, _, _ in band)
             if item.key not in NOT_GATED:
                 names_left_total += names_left
+                unlabelled_total += unlabelled
+        over = over_scrub_share(raw, transcript)
         if item.key not in NOT_GATED:
             high_total += len(high)
+            over_scrub_failures += over > OVER_SCRUB_MAX
         rows.append(
             [item.key + (" (not gated)" if item.key in NOT_GATED else ""), str(len(transcript.turns)),
-             str(lc.caps), str(lc.caps_distinct), str(len(high)), str(len(band)), str(names_left), str(unlabelled),
-             f"{over_scrub_share(raw, transcript):.2%}"]
+             str(lc.caps), str(lc.caps_distinct), str(len(high)), str(len(band)), str(names_left), str(accepted),
+             str(unlabelled), f"{over:.2%}"]
         )  # fmt: skip
         dump[item.key] = lc.hits
 
     header = ["class", "turns", "(a) caps", "(a) distinct", "(b) >= 85", "(b) 70-84", "(b) labelled names left",
-              "(b) unlabelled 70-84", "(c) over-scrub"]  # fmt: skip
+              "(b) accepted word-like names", "(b) unlabelled 70-84", "(c) over-scrub"]  # fmt: skip
     print("| " + " | ".join(header) + " |")
     print("|" + "---|" * len(header))
     for r in rows:
@@ -84,8 +99,13 @@ def main() -> None:
     if labels is None:
         print(f"\nGate D16: not checked ({labels_path.name} missing); hits >= 85: {high_total}")
     else:
-        verdict = "PASS" if high_total == 0 and names_left_total == 0 else "FAIL"
-        print(f"\nGate D16: {verdict} (hits >= 85: {high_total}, labelled names left: {names_left_total})")
+        fail = high_total or names_left_total or over_scrub_failures
+        verdict = "FAIL" if fail else "PENDING REVIEW" if unlabelled_total else "PASS"
+        print(
+            f"\nGate D16: {verdict} (hits >= 85: {high_total}, labelled names left: {names_left_total}, "
+            f"classes over {OVER_SCRUB_MAX:.1%} over-scrub: {over_scrub_failures}, "
+            f"unlabelled 70-84 to review: {unlabelled_total})"
+        )
     if args.dump:
         out = s.cache_dir / "leak_audit_hits.json"
         out.parent.mkdir(parents=True, exist_ok=True)

@@ -160,15 +160,23 @@ def test_rare_mangled_name_is_scrubbed():
     assert t.turns[0].text == "good try [NAME], now the rook"
 
 
+def test_common_word_display_name_only_scrubbed_when_capitalised():
+    raw = _vtt(("Priya Raman", "we will play now, Will, and you will win"), ("Will Smith", "ok"))
+    t, _ = anonymise(raw)
+    assert t.turns[0].text == "we will play now, S1, and you will win"
+    assert leak_counts(t.turns[0].text, "", ["Will Smith"]).name_hits == 0
+
+
 def test_over_scrub_share():
     raw = _vtt(("Priya Raman", "Kavya, sit down please now"), ("Will Smith", "ok"))
     t, _ = anonymise(raw)
     assert t.turns[0].text == "[NAME], sit down please now"
     assert over_scrub_share(raw, t) == 0.0  # a rare name scrubbed is not over-scrubbing
-    raw = _vtt(("Priya Raman", "we will play now and you will win"), ("Will Smith", "ok"))
+    # exact display-name match on a fairly common word (zipf 4.27, below WORD_NAME_ZIPF) still counts
+    raw = _vtt(("Priya Raman", "at dawn we play and at dawn we win"), ("Dawn Smith", "ok"))
     t, _ = anonymise(raw)
-    assert t.turns[0].text == "we S1 play now and you S1 win"  # exact display-name match on a common word
-    assert over_scrub_share(raw, t) == 2 / 8
+    assert t.turns[0].text == "at S1 we play and at S1 we win"
+    assert over_scrub_share(raw, t) == 2 / 9
 
 
 def test_scrub_names_for_whisper_text():

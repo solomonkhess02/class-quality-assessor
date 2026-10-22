@@ -18,6 +18,7 @@ from cqa.schemas import Transcript
 FUZZY_MIN = 85  # >= this: the same child, replaced by their pseudonym
 NAME_FUZZY_MIN = 70  # >= this (below FUZZY_MIN): likely an ASR-mangled name, replaced by [NAME] (E11b)
 COMMON_ZIPF = 4.0  # wordfreq zipf (en) at or above this: ordinary English, never fuzzy-matched or scrubbed (E11b)
+WORD_NAME_ZIPF = 4.5  # a display-name token this common ("Will") is a name only when capitalised (E11c)
 DEVICE_WORDS = {
     "iphone", "ipad", "galaxy", "android", "phone", "mobile", "laptop", "pc", "desktop",
     "macbook", "mac", "tablet", "tab", "redmi", "samsung", "oppo", "vivo", "realme", "pixel",
@@ -77,6 +78,16 @@ def _keep(tok: str, common_zipf: float) -> bool:
     return tok.lower() in ALLOWED_CAPS or is_common_word(tok, common_zipf)
 
 
+def is_word_name(name_token: str) -> bool:
+    return " " not in name_token and is_common_word(name_token, WORD_NAME_ZIPF)
+
+
+def _name_pattern(name: str) -> re.Pattern[str]:
+    if is_word_name(name):  # capitalised first letter only: "Will" is the child, "will" is the verb
+        return re.compile(rf"\b{re.escape(name[0].upper())}(?i:{re.escape(name[1:])})\b")
+    return re.compile(rf"\b{re.escape(name)}\b", re.IGNORECASE)
+
+
 def _replace_names(
     text: str,
     patterns: list[tuple[re.Pattern[str], str]],
@@ -95,6 +106,8 @@ def _replace_names(
             return tok
         best, best_score = tok, 0.0
         for name, pseudo in fuzzy.items():
+            if tok[0].islower() and is_word_name(name):
+                continue
             score = fuzz.ratio(tok.lower(), name)
             if score > best_score:
                 best, best_score = pseudo, score
@@ -121,10 +134,7 @@ def pseudonymise(
         for tok in _name_tokens(display):
             exact.setdefault(tok, pseudo)
             fuzzy.setdefault(tok.lower(), pseudo)
-    patterns = [
-        (re.compile(rf"\b{re.escape(name)}\b", re.IGNORECASE), pseudo)
-        for name, pseudo in sorted(exact.items(), key=lambda kv: -len(kv[0]))
-    ]
+    patterns = [(_name_pattern(name), pseudo) for name, pseudo in sorted(exact.items(), key=lambda kv: -len(kv[0]))]
 
     turns = [
         t.model_copy(
@@ -228,20 +238,25 @@ def leak_counts(text: str, template: str, display_names: list[str]) -> LeakCount
     skip = {w.lower() for w in _WORD.findall(template)} | ALLOWED_CAPS | {"tutor", "name"}
     caps = [m.group(0) for m in _CAP_TOKEN.finditer(text) if m.group(0).lower() not in skip]
     names = display_name_tokens(display_names)
-    counts: dict[str, int] = {}
+    # Same exception as the scrubber: lowercase "will" is not the child "Will" (is_word_name, E11c).
+    lower_names = {n for n in names if not is_word_name(n)}
+    counts: dict[tuple[str, bool], int] = {}  # (lowercased token, written in lowercase) -> occurrences
     for w in _WORD.findall(text):
-        w = w.lower()
-        if len(w) >= 3 and w not in skip:
-            counts[w] = counts.get(w, 0) + 1
-    hits: list[tuple[str, str, float]] = []
-    for w in counts:
-        best = max(((fuzz.ratio(w, n), n) for n in names), default=(0.0, ""))
+        if len(w) >= 3 and w.lower() not in skip:
+            key = (w.lower(), w.islower())
+            counts[key] = counts.get(key, 0) + 1
+    best_by_token: dict[str, tuple[float, str]] = {}
+    n_hits = 0
+    for (w, lower), n in counts.items():
+        best = max(((fuzz.ratio(w, x), x) for x in (lower_names if lower else names)), default=(0.0, ""))
         if best[0] >= AUDIT_FUZZY_MIN:
-            hits.append((w, best[1], round(best[0], 1)))
+            n_hits += n
+            best_by_token[w] = max(best_by_token.get(w, best), best)
+    hits = [(w, name, round(score, 1)) for w, (score, name) in best_by_token.items()]
     return LeakCounts(
         caps=len(caps),
         caps_distinct=len({c.lower() for c in caps}),
-        name_hits=sum(counts[w] for w, _, _ in hits),
+        name_hits=n_hits,
         names_hit=len({n for _, n, _ in hits}),
         hits=hits,
     )
