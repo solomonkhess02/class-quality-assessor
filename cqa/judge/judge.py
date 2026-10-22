@@ -102,13 +102,14 @@ RAPPORT_NO_BELOW = (2, 2.0)  # fewer than 2 students talking or under 2 minutes 
 RAPPORT_YES_FROM = (3, 3.0)  # at least 3 students talking and at least 3 minutes -> "yes"
 
 
-def warm_up(transcript: Transcript, content_start_s: float) -> tuple[float, int]:
+def warm_up(transcript: Transcript, content_start_s: float) -> tuple[float, int] | None:
     """(minutes from the first tutor greeting to the start of content, distinct students with a turn of
-    >= WARM_UP_MIN_WORDS words in that window). No greeting before content -> (0, 0)."""
+    >= WARM_UP_MIN_WORDS words in that window). No tutor greeting before content -> None: a warm-up that cannot be
+    located cannot be measured (A3d), e.g. when another account taught the start."""
     greetings = [t.start_s for t in transcript.turns
                  if t.role == "tutor" and t.start_s <= content_start_s and GREETING_RE.search(t.text)]  # fmt: skip
     if not greetings:
-        return 0.0, 0
+        return None
     start = min(greetings)
     talkers = {
         t.speaker
@@ -148,10 +149,14 @@ def verify_key_facts(
         updates["new_joiners"] = "unknown"
 
     starts = [parse_ts(e.timestamp) for e in kept if e.fact == "content_start"]
-    if starts:
-        minutes, students = warm_up(transcript, min(starts))
+    measured = warm_up(transcript, min(starts)) if starts else None
+    if measured is not None:
+        minutes, students = measured
         updates.update(content_start=format_ts(min(starts)), warm_up_min=minutes, warm_up_students=students,
                        rapport_before_content=rapport_from_warm_up(minutes, students))  # fmt: skip
+    elif starts:  # content start verified, but no tutor greeting before it
+        updates.update(content_start=format_ts(min(starts)), warm_up_min=None, warm_up_students=None,
+                       rapport_before_content="unknown")  # fmt: skip
     else:
         updates.update(content_start="", warm_up_min=None, warm_up_students=None, rapport_before_content="unknown")
 

@@ -328,3 +328,11 @@ def test_assess_with_severity_rule(env):
     assert a.meta["problems_found"] == [] and 0 <= a.meta["score_100"] <= 100
     unusable = assess(judged.model_copy(update={"transcript_usable": False}), visual, _stats(60, []), "vtt")
     assert unusable.confidence == 0.25
+
+
+def test_rapport_unknown_when_no_tutor_greeting_before_content():
+    # A3d: children talk before content, but the tutor's greeting cannot be located -> unknown, not "no"
+    tr = _transcript((30, "S1", "I played a tournament this weekend"), (60, "S2", "we went to the zoo yesterday"),
+                     (120, "TUTOR", "okay let's start with the revision of forks"))  # fmt: skip
+    out = _rapport(tr, "00:02:00")
+    assert out.rapport_before_content == "unknown" and out.warm_up_min is None and out.content_start == "00:02:00"
