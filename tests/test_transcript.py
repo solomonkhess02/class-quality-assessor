@@ -166,6 +166,16 @@ def test_common_word_name_survives_in_lowercase_and_at_sentence_start():
         assert t.turns[0].text == text
 
 
+def test_vocative_common_word_name_at_sentence_start_is_scrubbed():
+    for text, expected in (
+        ("Need, your move.", "[NAME], your move."),
+        ("Well done. Need? Are you there", "Well done. [NAME]? Are you there"),
+        ("Need help with the rook", "Need help with the rook"),  # sentence start, no , ? ! after: kept
+    ):
+        t, _ = anonymise(_vtt(("Priya Raman", text), ("Neel Shah", "ok")))
+        assert t.turns[0].text == expected
+
+
 def test_capitalised_chess_term_resembling_a_name_survives():
     # "Castle" is 83% similar to "Castel" (loose band) but is on the chess allowlist
     t, _ = anonymise(_vtt(("Priya Raman", "now you can Castle on the King side"), ("Castel Roy", "ok")))

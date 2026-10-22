@@ -116,11 +116,15 @@ def _replace_names(
         if best_score < name_min:
             return tok
         # Loose band: a common word is kept, unless it is capitalised mid-sentence, where it reads as the name
-        # (names that are also common words, D16 review); at a turn or sentence start the capital says nothing
+        # (names that are also common words, D16 review), or capitalised at a sentence start and used as a
+        # vocative ("Name, ..."), the rule scrub_names applies on the whisper path; otherwise the capital says nothing
         if not is_common_word(tok, common_zipf):
             return NAME_TOKEN
-        mid_sentence = tok[0].isupper() and not _SENTENCE_START.search(m.string[: m.start()])
-        return NAME_TOKEN if mid_sentence else tok
+        if not tok[0].isupper():
+            return tok
+        at_start = bool(_SENTENCE_START.search(m.string[: m.start()]))
+        vocative = m.string[m.end() : m.end() + 1] in {",", "?", "!"}
+        return NAME_TOKEN if (not at_start or vocative) else tok
 
     return _WORD_TOKEN.sub(fuzzy_sub, text)
 

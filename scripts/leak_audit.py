@@ -31,6 +31,7 @@ from cqa.transcript.privacy import (  # noqa: E402
     COMMON_ZIPF,
     FUZZY_MIN,
     anonymise,
+    display_name_tokens,
     is_common_word,
     leak_counts,
     over_scrub_share,
@@ -39,6 +40,11 @@ from cqa.transcript.roles import assign_roles  # noqa: E402
 from cqa.transcript.vtt import parse_vtt  # noqa: E402
 
 NOT_GATED = {"demo/1"}
+# D16 documented exceptions: class -> how many labelled names left are accepted, each only if the display-name token
+# it matches is the tutor's. Tokens are deliberately not written here (real names stay out of the repo).
+DOCUMENTED_EXCEPTIONS = {
+    "excellent/B472": 1,  # ASR-mangled form of the tutor's name rendered as a different name, one occurrence (E24)
+}
 OVER_SCRUB_MAX = 0.005
 
 
@@ -47,7 +53,8 @@ def joined(messages: list[dict]) -> str:
 
 
 HEADER = ["class", "turns", "(a) caps", "(a) distinct", "(b) >= 85", "(b) 70-84", "(b) labelled names left",
-          "(b) accepted word-like names, lowercase only", "(b) unlabelled 70-84", "(c) over-scrub"]  # fmt: skip
+          "(b) accepted word-like names, lowercase only", "(b) documented exceptions", "(b) unlabelled 70-84",
+          "(c) over-scrub"]  # fmt: skip
 
 
 def audit() -> tuple[list[list[str]], str, dict]:
@@ -56,7 +63,7 @@ def audit() -> tuple[list[list[str]], str, dict]:
     labels_path = s.cache_dir / "leak_review_labels.json"
     labels = json.loads(labels_path.read_text(encoding="utf-8"))["labels"] if labels_path.exists() else None
     rows, dump = [], {}
-    high_total = names_left_total = unlabelled_total = over_scrub_failures = 0
+    high_total = names_left_total = unlabelled_total = over_scrub_failures = documented_total = 0
     for item in discover(s.classes_dir, probe_duration=media.probe_duration):
         if not item.vtt:
             continue
@@ -71,7 +78,7 @@ def audit() -> tuple[list[list[str]], str, dict]:
         high = [h for h in lc.hits if h[2] >= FUZZY_MIN]
         band = [h for h in lc.hits if h[2] < FUZZY_MIN]
         if labels is None:
-            names_left = accepted = unlabelled = "-"
+            names_left = accepted = unlabelled = documented = "-"
         else:
             known = dict(map(tuple, labels.get(item.key, [])))
             # D16 exception: a labelled name that is also an ordinary dictionary word and is left only in lowercase,
@@ -81,6 +88,11 @@ def audit() -> tuple[list[list[str]], str, dict]:
                 for w, _, _ in band
             )
             names_left = sum(known.get(w) == "name" for w, _, _ in band) - accepted
+            tutor_tokens = display_name_tokens(sorted({t.speaker for t in raw.turns if t.role == "tutor"}))
+            tutor_hits = sum(known.get(w) == "name" and name in tutor_tokens for w, name, _ in band)
+            documented = min(DOCUMENTED_EXCEPTIONS.get(item.key, 0), tutor_hits, names_left)
+            names_left -= documented
+            documented_total += documented
             unlabelled = sum(w not in known for w, _, _ in band)
             if item.key not in NOT_GATED:
                 names_left_total += names_left
@@ -92,7 +104,7 @@ def audit() -> tuple[list[list[str]], str, dict]:
         rows.append(
             [item.key + (" (not gated)" if item.key in NOT_GATED else ""), str(len(transcript.turns)),
              str(lc.caps), str(lc.caps_distinct), str(len(high)), str(len(band)), str(names_left), str(accepted),
-             str(unlabelled), f"{over:.2%}"]
+             str(documented), str(unlabelled), f"{over:.2%}"]
         )  # fmt: skip
         dump[item.key] = lc.hits
     if labels is None:
@@ -101,7 +113,8 @@ def audit() -> tuple[list[list[str]], str, dict]:
     verdict = "FAIL" if fail else "PENDING REVIEW" if unlabelled_total else "PASS"
     line = (
         f"Gate D16: {verdict} (hits >= 85: {high_total}, labelled names left: {names_left_total}, "
-        f"unlabelled 70-84 to review: {unlabelled_total}); over-scrub, monitored not gated: "
+        f"unlabelled 70-84 to review: {unlabelled_total}, documented exceptions: {documented_total}); "
+        "over-scrub, monitored not gated: "
         f"{over_scrub_failures} classes over {OVER_SCRUB_MAX:.1%}"
     )
     return rows, line, dump
