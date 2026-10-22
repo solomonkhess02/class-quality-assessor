@@ -70,8 +70,8 @@ def get_inputs() -> tuple:
     if not transcript and src != "No recording (transcript only)":
         st.info(
             "No transcript given: the audio will be transcribed locally with whisper.cpp. This is much slower "
-            "(a few minutes: only the opening, closing and two short middle samples are transcribed) and speakers are not identified, so engagement "
-            "criteria are less reliable."
+            "(a few minutes: only the opening, closing and two short middle samples are transcribed) and "
+            "speakers are not identified, so engagement criteria are less reliable."
         )
     return video, drive_url, transcript, st.button("Run assessment", type="primary")
 
