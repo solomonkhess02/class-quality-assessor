@@ -63,6 +63,7 @@ class VisualFrameMetrics(BaseModel):
     is_frozen: bool
     face_count: int
     flat_ratio: float = 0.0  # share of 8x8 blocks with ~no texture (screen content)
+    face_brightness: float | None = None  # mean grey of the largest face box (A3b lighting)
     is_screen_share: bool = False
 
 
@@ -76,6 +77,7 @@ class VisualReport(BaseModel):
     pct_screen_share: float = 0.0
     pct_face_camera: float = 0.0  # face % over frames that are not screen share or black
     pct_frozen_camera: float = 0.0  # frozen % over the same camera frames (D14); not sent to the judge
+    median_face_brightness: float | None = None  # over camera frames with a face; None if < 5 (A3b); code only
 
 
 class Evidence(BaseModel):
@@ -107,20 +109,31 @@ class CriterionResult(BaseModel):
 
 class FactEvidence(Evidence):
     fact: str
+    value: Literal["yes", "no"] = "yes"  # what the quote shows: the fact holds, or the opposite (A3b)
+
+
+FactState = Literal["yes", "no", "unknown"]
+YES_NO_FACTS = ("homework_assigned", "recap_present", "rapport_before_content", "each_child_asked_individually")
 
 
 class KeyFacts(BaseModel):
-    """Yes/no facts that discriminated between classes in E9. Shown in the report; not scored."""
+    """Facts that discriminated between classes in E9. Three states (A3b): "yes" and "no" each need a verified
+    quote showing them; otherwise "unknown", which is never treated as a problem."""
 
-    homework_assigned: bool = False
+    homework_assigned: FactState = "unknown"
     homework_what: str = ""
-    new_joiners: Literal["invited", "not_invited", "none"] = "none"
+    new_joiners: Literal["invited", "not_invited", "none", "unknown"] = "none"
     children_greeted_by_name: int = 0
-    recap_present: bool = False
+    recap_present: FactState = "unknown"
     # ablation A2 (FACTS_DRIVE): reported only when the switch is on
-    rapport_before_content: bool = False
-    each_child_asked_individually: bool = False
+    rapport_before_content: FactState = "unknown"
+    each_child_asked_individually: FactState = "unknown"
     evidence: list[FactEvidence] = Field(default_factory=list)
+
+    @field_validator(*YES_NO_FACTS, mode="before")
+    @classmethod
+    def _legacy_bool(cls, v: Any) -> Any:
+        return {True: "yes", False: "no"}.get(v, v) if isinstance(v, bool) else v
 
 
 class JudgeOutput(BaseModel):

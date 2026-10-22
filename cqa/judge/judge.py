@@ -18,6 +18,7 @@ from cqa.judge import prompts
 from cqa.judge.llm import call_json
 from cqa.judge.rubric import LLM_CRITERIA
 from cqa.schemas import (
+    YES_NO_FACTS,
     CriterionResult,
     Evidence,
     JudgeOutput,
@@ -89,49 +90,77 @@ def verify_evidence(judged: JudgeOutput, transcript: Transcript, window_s: float
     return judged.model_copy(update={"criteria": criteria}), dropped, total
 
 
-def verify_key_facts(kf: KeyFacts, transcript: Transcript, window_s: float) -> tuple[KeyFacts, int, list[str]]:
-    """Verify key-fact quotes; true / non-zero / "invited" facts without a verified quote are reset.
-    Returns (facts, dropped quotes, names of facts that were reset)."""
+GREETING_RE = re.compile(r"\b(?:hi|hello|hey|good (?:morning|afternoon|evening)|how are you)\b", re.IGNORECASE)
+ADDRESSED_RE = re.compile(r"\bS\d+\b|\[NAME\]")
+HOMEWORK_RE = re.compile(r"\b(?:home ?work|assignment|practi[cs]e|at home)\b", re.IGNORECASE)
+
+
+def verify_key_facts(
+    kf: KeyFacts, transcript: Transcript, window_s: float, closing_min: float = 10.0
+) -> tuple[KeyFacts, int, list[str], dict[str, int]]:
+    """Three-state facts (A3b): "yes" / "invited" need a verified quote with value yes, "no" / "not_invited" a
+    verified quote with value no; otherwise the fact becomes "unknown". Code guards then move a "no" to "unknown"
+    when the transcript contradicts it (a quote proves a line exists, not that nothing happened before it).
+    Returns (facts, dropped quotes, facts reset to unknown, guard counts)."""
     kept, dropped = verify_list(kf.evidence, transcript, window_s)
-    supported = {e.fact for e in kept}
+    shown = {(e.fact, e.value) for e in kept}
     updates: dict = {"evidence": kept}
-    if kf.homework_assigned and "homework_assigned" not in supported:
-        updates.update(homework_assigned=False, homework_what="")
-    if kf.recap_present and "recap_present" not in supported:
-        updates["recap_present"] = False
-    if kf.children_greeted_by_name and "children_greeted_by_name" not in supported:
+    for fact in YES_NO_FACTS:
+        state = getattr(kf, fact)
+        if state in ("yes", "no") and (fact, state) not in shown:
+            updates[fact] = "unknown"
+    if kf.children_greeted_by_name and ("children_greeted_by_name", "yes") not in shown:
         updates["children_greeted_by_name"] = 0
-    if kf.new_joiners == "invited" and "new_joiners" not in supported:
-        updates["new_joiners"] = "none"  # unknown whether a new child joined
-    for fact in ("rapport_before_content", "each_child_asked_individually"):
-        if getattr(kf, fact) and fact not in supported:
-            updates[fact] = False
+    joiner_value = {"invited": "yes", "not_invited": "no"}.get(kf.new_joiners)
+    if joiner_value and ("new_joiners", joiner_value) not in shown:
+        updates["new_joiners"] = "unknown"
+
+    guards = {"rapport_no_to_unknown": 0, "homework_no_to_unknown": 0}
+    if updates.get("rapport_before_content", kf.rapport_before_content) == "no":
+        quoted = [parse_ts(e.timestamp) for e in kept if e.fact == "rapport_before_content" and e.value == "no"]
+        before = [t for t in transcript.turns if t.role == "tutor" and quoted and t.start_s < min(quoted)]
+        if any(GREETING_RE.search(t.text) or ADDRESSED_RE.search(t.text) for t in before):
+            updates["rapport_before_content"] = "unknown"
+            guards["rapport_no_to_unknown"] += 1
+    if updates.get("homework_assigned", kf.homework_assigned) == "no":
+        closing_start = transcript.duration_s - closing_min * 60
+        if any(HOMEWORK_RE.search(t.text) for t in transcript.turns if t.start_s >= closing_start):
+            updates["homework_assigned"] = "unknown"
+            guards["homework_no_to_unknown"] += 1
+    if updates.get("homework_assigned", kf.homework_assigned) != "yes":
+        updates["homework_what"] = ""
     reset = [k for k in updates if k not in ("evidence", "homework_what")]
-    return kf.model_copy(update=updates), dropped, reset
+    return kf.model_copy(update=updates), dropped, reset, guards
 
 
 def fact_bounds(kf: KeyFacts) -> dict[str, tuple[int | None, int | None, list[str]]]:
     """Ablation A2: (floor, cap, reasons) per criterion from the verified yes/no facts, so a fact and its criterion
     cannot contradict each other. Rules written before results (docs/EVALUATION.md, A2)."""
     bounds: dict[str, tuple[int | None, int | None, list[str]]] = {}
+    # unknown facts never bound a score (A3b); "no" facts carry a verified quote of the opposite
     no_intro = kf.new_joiners == "not_invited"
-    if not kf.rapport_before_content or no_intro:
-        why = (["no personal chat before teaching"] if not kf.rapport_before_content else []) + (
+    if kf.rapport_before_content == "no" or no_intro:
+        why = (["no personal chat before teaching"] if kf.rapport_before_content == "no" else []) + (
             ["a new joiner was not invited to introduce themselves"] if no_intro else []
         )
         bounds["opening_rapport"] = (None, 2, why)
-    else:
+    elif kf.rapport_before_content == "yes":
         bounds["opening_rapport"] = (3, None, ["personal chat before teaching (verified quote)"])
-    if kf.each_child_asked_individually:
+    if kf.each_child_asked_individually == "yes":
         bounds["individual_engagement"] = (3, None, ["every child asked individually (verified quote)"])
-    else:
-        bounds["individual_engagement"] = (None, 2, ["not every child was asked individually"])
-    if kf.homework_assigned:
-        bounds["closure_homework"] = (3, None if kf.recap_present else 3, ["homework assigned (verified quote)"]
-                                      + ([] if kf.recap_present else ["no closing recap"]))  # fmt: skip
-    else:
-        cap = 3 if kf.recap_present else 2
-        bounds["closure_homework"] = (None, cap, ["no homework assigned"] + ([] if kf.recap_present else ["no recap"]))
+    elif kf.each_child_asked_individually == "no":
+        bounds["individual_engagement"] = (None, 2, ["not every child was asked individually (verified quote)"])
+    floor = 3 if kf.homework_assigned == "yes" else None
+    cap = None
+    why = ["homework assigned (verified quote)"] if floor else []
+    if kf.homework_assigned == "no":
+        cap = 2 if kf.recap_present == "no" else 3
+        why.append("no homework assigned")
+    if kf.recap_present == "no":
+        cap = min(cap or 3, 3)
+        why.append("no closing recap")
+    if floor or cap:
+        bounds["closure_homework"] = (floor, cap, why)
     return bounds
 
 
@@ -218,12 +247,15 @@ def _judge_direct(
         criteria.append(c)
     verified = verified.model_copy(update={"criteria": criteria})
     if verified.key_facts is not None:
-        kf, kf_dropped, reset = verify_key_facts(verified.key_facts, transcript, s.evidence_window_s)
+        kf, kf_dropped, reset, guards = verify_key_facts(
+            verified.key_facts, transcript, s.evidence_window_s, s.closing_window_min
+        )
         verified = verified.model_copy(update={"key_facts": kf})
         total += len(raw.key_facts.evidence) if raw.key_facts else 0
         dropped += kf_dropped
+        meta["fact_guards"] = guards
         if reset:
-            warnings.append(f"Key facts without a verified quote were reset: {', '.join(reset)}")
+            warnings.append(f"Key facts without a verified quote were set to unknown: {', '.join(reset)}")
         if s.facts_drive and verified.transcript_usable:
             verified = verified.model_copy(update={"criteria": apply_fact_bounds(verified.criteria, kf)})
     meta.update({"design": "direct", "evidence_total": total, "evidence_dropped": dropped})

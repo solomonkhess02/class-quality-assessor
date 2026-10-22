@@ -19,7 +19,8 @@ FACE_SCORE_THRESHOLD = 0.6
 # Screen share: most 8x8 blocks are flat (no sensor noise). Initial guesses, checked by eye (contact sheet).
 FLAT_BLOCK_MAX_STD = 2.0
 SCREEN_SHARE_MIN_FLAT = 0.5
-CACHE_NAME = "visual_frames_v2.json"  # bump when per-frame metrics change
+CACHE_NAME = "visual_frames_v3.json"  # bump when per-frame metrics change (v3: face_brightness)
+MIN_FACE_FRAMES_FOR_LIGHTING = 5
 
 
 def load_face_detector(model_path: Path) -> cv2.FaceDetectorYN:
@@ -28,11 +29,28 @@ def load_face_detector(model_path: Path) -> cv2.FaceDetectorYN:
     return cv2.FaceDetectorYN.create(str(model_path), "", (320, 320), FACE_SCORE_THRESHOLD, 0.3, 100)
 
 
-def count_faces(img: np.ndarray, detector: cv2.FaceDetectorYN) -> int:
+def detect_faces(img: np.ndarray, detector: cv2.FaceDetectorYN) -> np.ndarray:
+    """YuNet rows: x, y, w, h, 10 landmark coordinates, score."""
     h, w = img.shape[:2]
     detector.setInputSize((w, h))
     _, faces = detector.detect(img)
-    return 0 if faces is None else len(faces)
+    return np.empty((0, 15), np.float32) if faces is None else faces
+
+
+def count_faces(img: np.ndarray, detector: cv2.FaceDetectorYN) -> int:
+    return len(detect_faces(img, detector))
+
+
+def face_box_brightness(gray: np.ndarray, faces: np.ndarray) -> float | None:
+    """Mean grey level inside the largest face box, clipped to the frame."""
+    if len(faces) == 0:
+        return None
+    x, y, w, h = faces[int(np.argmax(faces[:, 2] * faces[:, 3]))][:4]
+    x0, y0 = max(int(x), 0), max(int(y), 0)
+    x1, y1 = min(int(x + w), gray.shape[1]), min(int(y + h), gray.shape[0])
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return round(float(gray[y0:y1, x0:x1].mean()), 1)
 
 
 def flat_ratio(gray: np.ndarray, block: int = 8) -> float:
@@ -53,13 +71,15 @@ def frame_metrics(
         and float(cv2.absdiff(gray, prev_gray).mean()) < FROZEN_MAX_MEAN_DIFF
     )
     flat = flat_ratio(gray)
+    faces = detect_faces(img, detector) if detector is not None else np.empty((0, 15), np.float32)
     m = VisualFrameMetrics(
         t_s=t_s,
         brightness=round(brightness, 1),
         blur=round(float(cv2.Laplacian(gray, cv2.CV_64F).var()), 1),
         is_black=brightness < BLACK_MAX_BRIGHTNESS,
         is_frozen=bool(frozen),
-        face_count=count_faces(img, detector) if detector is not None else 0,
+        face_count=len(faces),
+        face_brightness=face_box_brightness(gray, faces),
         flat_ratio=round(flat, 3),
         # dark flat frames are usually "camera off" tiles, not shared content
         is_screen_share=flat >= SCREEN_SHARE_MIN_FLAT and brightness >= DARK_MAX_BRIGHTNESS,
@@ -92,6 +112,10 @@ def cached_frame_metrics(video: Path, cdir: Path) -> list[VisualFrameMetrics]:
     return metrics
 
 
+def median_or_none(values: list[float], min_n: int = MIN_FACE_FRAMES_FOR_LIGHTING) -> float | None:
+    return round(float(np.median(values)), 1) if len(values) >= min_n else None
+
+
 def aggregate(metrics: list[VisualFrameMetrics]) -> VisualReport:
     n = len(metrics)
     if n == 0:
@@ -111,4 +135,5 @@ def aggregate(metrics: list[VisualFrameMetrics]) -> VisualReport:
         pct_screen_share=pct(sum(m.is_screen_share for m in metrics)),
         pct_face_camera=pct(sum(m.face_count > 0 for m in camera), len(camera)),
         pct_frozen_camera=pct(sum(m.is_frozen for m in camera), len(camera)),
+        median_face_brightness=median_or_none([m.face_brightness for m in camera if m.face_brightness is not None]),
     )

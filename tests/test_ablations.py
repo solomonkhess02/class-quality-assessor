@@ -53,17 +53,33 @@ def _visual(frozen_camera: float):
                         median_blur=1000, pct_frozen_camera=frozen_camera)  # fmt: skip
 
 
-def test_connectivity_mentions_close_together_are_one_incident():
+def test_tech_incidents_are_problem_phrases_only():
     from cqa.features.text_stats import connectivity_incidents
     from cqa.schemas import Turn
 
     turns = [
-        Turn(start_s=10, end_s=12, speaker="A", text="can you hear me?"),
-        Turn(start_s=30, end_s=32, speaker="B", text="you are on mute"),  # 18 s later: same incident
-        Turn(start_s=200, end_s=205, speaker="A", text="my internet is lagging"),  # new incident
-        Turn(start_s=300, end_s=305, speaker="A", text="the knight forks the rook"),
+        Turn(start_s=10, end_s=12, speaker="A", text="can you hear me?"),  # routine check, not a problem
+        Turn(start_s=20, end_s=22, speaker="B", text="you are on mute, please unmute"),  # mute management
+        Turn(start_s=30, end_s=32, speaker="B", text="yes I can see you"),  # affirmative
+        Turn(start_s=100, end_s=102, speaker="A", text="I can't hear you, your voice is breaking"),
+        Turn(start_s=130, end_s=132, speaker="B", text="my internet is lagging"),  # 28 s later: same incident
+        Turn(start_s=400, end_s=405, speaker="A", text="S2 got disconnected, he will rejoin"),
+        Turn(start_s=500, end_s=505, speaker="A", text="the knight forks the rook"),
     ]
-    assert connectivity_incidents(turns) == [10, 200]
+    assert connectivity_incidents(turns) == [100, 400]
+
+
+def test_face_box_brightness_and_median_needs_five_frames():
+    import numpy as np
+
+    from cqa.features.visual import face_box_brightness, median_or_none
+
+    gray = np.full((100, 100), 200, np.uint8)
+    gray[10:30, 10:30] = 60  # the larger face box is dark
+    faces = np.array([[10, 10, 20, 20] + [0] * 11, [60, 60, 10, 10] + [0] * 11], np.float32)
+    assert face_box_brightness(gray, faces) == 60.0
+    assert face_box_brightness(gray, np.empty((0, 15), np.float32)) is None
+    assert median_or_none([50, 60, 70, 80]) is None and median_or_none([50, 60, 70, 80, 90]) == 70.0
 
 
 def test_frozen_share_counts_camera_frames_only():
@@ -123,7 +139,8 @@ def test_fact_bounds_clamp_scores_and_cap_wins():
 
     crits = [C(id="opening_rapport", score=2), C(id="individual_engagement", score=4),
              C(id="closure_homework", score=2), C(id="communication", score=3)]  # fmt: skip
-    kf = _kf(rapport_before_content=True, each_child_asked_individually=False, homework_assigned=True)
+    kf = _kf(rapport_before_content="yes", each_child_asked_individually="no", homework_assigned="yes",
+             recap_present="no")  # fmt: skip
     out = {c.id: c for c in apply_fact_bounds(crits, kf)}
     assert out["opening_rapport"].score == 3  # raised: rapport before content
     assert out["individual_engagement"].score == 2  # capped: not every child asked
@@ -132,31 +149,90 @@ def test_fact_bounds_clamp_scores_and_cap_wins():
     assert "raised to 3" in out["opening_rapport"].observations[-1]
     # a new joiner left out caps the opening even with rapport (cap wins over floor)
     capped = apply_fact_bounds(
-        [C(id="opening_rapport", score=4)], _kf(rapport_before_content=True, new_joiners="not_invited")
+        [C(id="opening_rapport", score=4)], _kf(rapport_before_content="yes", new_joiners="not_invited")
     )
     assert capped[0].score == 2
 
 
-def test_fact_bounds_fill_unscored_and_respect_recap():
+def test_fact_bounds_fill_unscored_and_unknown_never_bounds():
     from cqa.judge.judge import apply_fact_bounds
     from cqa.schemas import CriterionResult as C
 
-    out = apply_fact_bounds([C(id="closure_homework", score=None)], _kf(homework_assigned=True, recap_present=True))
+    out = apply_fact_bounds([C(id="closure_homework", score=None)], _kf(homework_assigned="yes", recap_present="yes"))
     assert out[0].score == 3 and not out[0].insufficient_evidence
-    out = apply_fact_bounds([C(id="closure_homework", score=4)], _kf(recap_present=True))
-    assert out[0].score == 3  # no homework: at most 3 even with a recap
-    out = apply_fact_bounds([C(id="closure_homework", score=3)], _kf())
-    assert out[0].score == 2  # neither homework nor recap
+    out = apply_fact_bounds([C(id="closure_homework", score=4)], _kf(homework_assigned="no", recap_present="yes"))
+    assert out[0].score == 3  # verified no homework: at most 3 even with a recap
+    out = apply_fact_bounds([C(id="closure_homework", score=3)], _kf(homework_assigned="no", recap_present="no"))
+    assert out[0].score == 2
+    crits = [
+        C(id="opening_rapport", score=4),
+        C(id="individual_engagement", score=1),
+        C(id="closure_homework", score=4),
+    ]
+    assert [c.score for c in apply_fact_bounds(crits, _kf())] == [4, 1, 4]  # all unknown: LLM scores stand
 
 
-def test_new_facts_without_quote_are_reset():
+def test_legacy_bool_facts_are_coerced():
+    kf = _kf(rapport_before_content=True, each_child_asked_individually=False)
+    assert (kf.rapport_before_content, kf.each_child_asked_individually, kf.homework_assigned) == (
+        "yes",
+        "no",
+        "unknown",
+    )
+
+
+def _transcript(*lines):
+    from cqa.schemas import Transcript, Turn
+
+    turns = [Turn(start_s=t, end_s=t + 5, speaker=spk, role="tutor" if spk == "TUTOR" else "student", text=txt)
+             for t, spk, txt in lines]  # fmt: skip
+    return Transcript(source="vtt", duration_s=3600, turns=turns)
+
+
+def _ev(fact, value, ts, quote):
+    from cqa.schemas import FactEvidence
+
+    return FactEvidence(fact=fact, value=value, timestamp=ts, speaker="TUTOR", quote=quote)
+
+
+def test_three_state_facts_need_matching_verified_quotes():
     from cqa.judge.judge import verify_key_facts
-    from cqa.schemas import Transcript
 
-    kf = _kf(rapport_before_content=True, each_child_asked_individually=True)
-    out, _, reset = verify_key_facts(kf, Transcript(source="vtt"), 90)
-    assert not out.rapport_before_content and not out.each_child_asked_individually
-    assert set(reset) == {"rapport_before_content", "each_child_asked_individually"}
+    tr = _transcript((60, "TUTOR", "today we learn the fork, look at the board"), (3300, "TUTOR", "okay bye everyone"))
+    kf = _kf(rapport_before_content="no", each_child_asked_individually="yes", recap_present="no",
+             evidence=[_ev("rapport_before_content", "no", "00:01:00", "today we learn the fork, look at the board"),
+                       _ev("recap_present", "yes", "00:55:00", "okay bye everyone")])  # fmt: skip
+    out, _, reset, guards = verify_key_facts(kf, tr, 90)
+    assert out.rapport_before_content == "no"  # verified quote of the opposite, nothing before it
+    assert out.each_child_asked_individually == "unknown"  # yes without a quote
+    assert out.recap_present == "unknown"  # the quote shows yes, not the claimed no
+    assert set(reset) == {"each_child_asked_individually", "recap_present"}
+    assert guards == {"rapport_no_to_unknown": 0, "homework_no_to_unknown": 0}
+
+
+def test_guard_greeting_before_the_quote_makes_rapport_unknown():
+    from cqa.judge.judge import verify_key_facts
+
+    tr = _transcript((5, "TUTOR", "Hello S1, how was school?"), (60, "TUTOR", "today we learn the fork"))
+    kf = _kf(rapport_before_content="no",
+             evidence=[_ev("rapport_before_content", "no", "00:01:00", "today we learn the fork")])  # fmt: skip
+    out, _, _, guards = verify_key_facts(kf, tr, 90)
+    assert out.rapport_before_content == "unknown" and guards["rapport_no_to_unknown"] == 1
+
+
+def test_guard_homework_word_in_closing_makes_homework_unknown():
+    from cqa.judge.judge import verify_key_facts
+
+    tr = _transcript((3200, "TUTOR", "practice these two puzzles at home"), (3500, "TUTOR", "bye everyone"))
+    kf = _kf(homework_assigned="no", evidence=[_ev("homework_assigned", "no", "00:58:20", "bye everyone")])
+    out, _, _, guards = verify_key_facts(kf, tr, 90, closing_min=10)
+    assert out.homework_assigned == "unknown" and guards["homework_no_to_unknown"] == 1
+    # guards only ever move "no" to "unknown"
+    hw = "practice these two puzzles at home"
+    kf_yes = _kf(homework_assigned="yes",
+                 evidence=[_ev("homework_assigned", "yes", "00:53:20", hw)])  # fmt: skip
+    out_yes, _, _, guards_yes = verify_key_facts(kf_yes, tr, 90)
+    assert out_yes.homework_assigned == "yes" and guards_yes["homework_no_to_unknown"] == 0
 
 
 def test_facts_drive_prompt_switch(env):
@@ -179,24 +255,25 @@ def test_severity_label_tiers_and_margin():
     assert margin_confidence(1) == 0.75 and margin_confidence(5) == 1.0
 
 
-def test_severity_findings(env):
+def test_severity_checks_unknown_never_fires_and_face_is_moderate(env):
+    from cqa.config import get_settings
     from cqa.schemas import CriterionResult as C
     from cqa.scoring import severity_findings
 
     crits = [C(id="opening_rapport", score=3), C(id="individual_engagement", score=4), C(id="communication", score=2)]
-    visual = _visual(0).model_copy(update={"pct_face_camera": 30.0, "pct_dark": 50.0})
-    env(FACTS_DRIVE="true", LABEL_EXCLUDE="communication")
-    from cqa.config import get_settings
-
-    critical, moderate, positive = severity_findings(crits, _kf(rapport_before_content=False, recap_present=True),
-                                                     visual, get_settings())  # fmt: skip
-    assert critical == ["no rapport before content", "tutor face in only 30% of camera frames"]
-    assert moderate == ["no homework", "lighting: 50% dark frames"]  # low energy not counted: excluded (D15)
-    assert positive
-    env(FACTS_DRIVE="false", LABEL_EXCLUDE="none")
-    critical, moderate, _ = severity_findings(crits, _kf(homework_assigned=True, recap_present=True), None,
+    visual = _visual(0).model_copy(update={"pct_face_camera": 30.0, "median_face_brightness": 70.0})
+    env(FACTS_DRIVE="true", LABEL_EXCLUDE="communication", FACE_CHECK_CRITICAL="false")
+    kf = _kf(rapport_before_content="no", recap_present="yes", homework_assigned="unknown")
+    critical, moderate, positive = severity_findings(crits, kf, visual, get_settings())
+    assert critical == ["no rapport before content"]
+    assert moderate == ["tutor face in only 30% of camera frames", "lighting: face luma 70 (< 85)"]
+    assert not positive  # needs rapport yes and each child yes
+    env(FACE_CHECK_CRITICAL="true")
+    assert "tutor face in only 30% of camera frames" in severity_findings(crits, kf, visual, get_settings())[0]
+    env(FACE_CHECK_CRITICAL="false", LABEL_EXCLUDE="communication,dark_face,no_rapport")
+    critical, moderate, _ = severity_findings(crits, _kf(), visual.model_copy(update={"median_face_brightness": None}),
                                               get_settings())  # fmt: skip
-    assert critical == [] and moderate == ["low energy"]  # without A2 the opening score stands in for the fact
+    assert critical == [] and moderate == ["tutor face in only 30% of camera frames"]  # unknown facts never fire
 
 
 def test_assess_with_severity_rule(env):
@@ -208,7 +285,8 @@ def test_assess_with_severity_rule(env):
     judged = JudgeOutput(
         criteria=[C(id="opening_rapport", score=4), C(id="individual_engagement", score=4),
                   C(id="communication", score=3), C(id="closure_homework", score=4)],
-        key_facts=_kf(rapport_before_content=True, homework_assigned=True, recap_present=True),
+        key_facts=_kf(rapport_before_content="yes", each_child_asked_individually="yes", homework_assigned="yes",
+                      recap_present="yes"),
     )  # fmt: skip
     visual = _visual(0).model_copy(update={"pct_face_camera": 95.0})
     a = assess(judged, visual, _stats(60, []), "vtt")

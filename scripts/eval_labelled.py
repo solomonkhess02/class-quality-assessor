@@ -5,6 +5,7 @@ Usage: python scripts/eval_labelled.py [--runs 3] [--tag baseline] [--skip-visua
   --tag NAME     each run's full Assessment is kept under .cache/eval/<tag>/<run>/ and reused if present
   --skip-visual  VTT-only mode (the judge never sees video numbers)
   --no-grade     skip the feedback-recall grader (one DeepSeek call per labelled class per run)
+  --no-record    keep the assessments but write no scorecard and no ablations row (e.g. a measurement pass)
 
 Writes eval/scorecard.md (metric | value mean [min-max] across runs | target | n) and appends one row to
 eval/ablations.md with the git commit and judge settings. The grader spot-check file for 3 classes goes to
@@ -319,6 +320,7 @@ def main() -> None:
     ap.add_argument("--tag", default="dev")
     ap.add_argument("--skip-visual", action="store_true")
     ap.add_argument("--no-grade", action="store_true")
+    ap.add_argument("--no-record", action="store_true")
     args = ap.parse_args()
     s = get_settings()
     truth = load_ground_truth(s.data_dir)
@@ -355,6 +357,10 @@ def main() -> None:
     truth_n = {"weak": recall_all["weak"][1], "good": recall_all["good"][1]}
     _, gate_line, _ = audit()
     lines = scorecard(per_run, truth_n, args, gate_line)
+    if args.no_record:
+        print("\n".join(lines))
+        print(f"\n--no-record: nothing written to eval/; assessments under {out}")
+        return
     (REPO_ROOT / "eval").mkdir(exist_ok=True)
     (REPO_ROOT / "eval" / "scorecard.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     append_ablation(per_run, args)

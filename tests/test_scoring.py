@@ -132,7 +132,7 @@ def test_assess_passes_key_facts_and_alt_label():
 
     j = judge({k: 3 for k in ALL_LLM}).model_copy(update={"key_facts": KeyFacts(homework_assigned=True)})
     a = assess(j, GOOD_VISUAL, None, "vtt")
-    assert a.key_facts.homework_assigned is True
+    assert a.key_facts.homework_assigned == "yes"  # legacy bool coerced
     assert a.meta["problem_count_label"] == "Excellent" and a.meta["problems"] == 0
 
 

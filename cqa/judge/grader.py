@@ -57,7 +57,7 @@ def report_lines(a: Assessment) -> list[str]:
     lines += [f"Improvement: {x}" for x in a.improvements]
     if kf := a.key_facts:
         homework = (
-            f"yes ({kf.homework_what})" if kf.homework_assigned and kf.homework_what else str(kf.homework_assigned)
+            f"yes ({kf.homework_what})" if kf.homework_assigned == "yes" and kf.homework_what else kf.homework_assigned
         )
         lines.append(
             f"Key facts: homework assigned: {homework}; new joiners: {kf.new_joiners}; children greeted by name "

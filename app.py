@@ -13,7 +13,7 @@ from cqa.pipeline import run
 from cqa.schemas import Assessment
 
 LABEL_COLOURS = {"Excellent": "green", "Good": "blue", "Average": "orange", "Poor": "red"}
-JOINERS = {"invited": "yes", "not_invited": "no", "none": "no new joiners seen"}
+JOINERS = {"invited": "yes", "not_invited": "no", "none": "no new joiners seen", "unknown": "unknown"}
 
 st.set_page_config(page_title="Class Quality Assessor", page_icon="♟️", layout="wide")
 st.title("Class Quality Assessor")
@@ -118,10 +118,13 @@ def show(a: Assessment) -> None:
         st.subheader("Key facts")
         facts = pd.DataFrame(
             [
-                {"fact": "Homework assigned", "value": f"yes: {kf.homework_what}" if kf.homework_assigned else "no"},
+                {
+                    "fact": "Homework assigned",
+                    "value": f"yes: {kf.homework_what}" if kf.homework_assigned == "yes" else kf.homework_assigned,
+                },
                 {"fact": "New joiners invited to introduce themselves", "value": JOINERS[kf.new_joiners]},
                 {"fact": "Children greeted by name before teaching", "value": str(kf.children_greeted_by_name)},
-                {"fact": "Recap at the end", "value": "yes" if kf.recap_present else "no"},
+                {"fact": "Recap at the end", "value": kf.recap_present},
             ]
         )
         st.dataframe(facts, hide_index=True, width="stretch")

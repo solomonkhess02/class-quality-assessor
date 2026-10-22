@@ -19,15 +19,25 @@ CONNECTIVITY_RE = re.compile(
 )
 
 
+# Connectivity problems only, for D14 incidents (A3b): no mute management, no "can you hear me", no affirmatives.
+# CONNECTIVITY_RE above stays as it was, since connectivity_mentions is part of the judge's statistics.
+TECH_INCIDENT_RE = re.compile(
+    r"can(?:'t|not|t) (?:you |u )?hear|not audible|(?:voice|audio|sound) (?:is )?breaking|breaking up"
+    r"|network|internet|connection (?:is |was )?(?:bad|poor|weak|slow|lost|gone|issue|problem)"
+    r"|\blag(?:ging|gy)?\b|(?:screen|video|it)(?: is|'s| got)? (?:stuck|frozen|freezing)|\bfroze(?:n)?\b"
+    r"|disconnect(?:ed|ing)?|re-?join(?:ed|ing)?"
+    r"|can(?:'t|not|t) see (?:the |your |my )?screen|screen (?:is )?not visible",
+    re.IGNORECASE,
+)
 INCIDENT_GAP_S = 60.0  # connectivity mentions closer than this belong to one incident
 
 
 def connectivity_incidents(turns: list[Turn]) -> list[float]:
-    """Start times of connectivity incidents: turns matching CONNECTIVITY_RE, merged when < INCIDENT_GAP_S apart."""
+    """Start times of connectivity incidents: turns matching TECH_INCIDENT_RE, merged when < INCIDENT_GAP_S apart."""
     starts: list[float] = []
     last_end = float("-inf")
     for t in turns:
-        if CONNECTIVITY_RE.search(t.text):
+        if TECH_INCIDENT_RE.search(t.text):
             if t.start_s - last_end >= INCIDENT_GAP_S:
                 starts.append(t.start_s)
             last_end = t.end_s

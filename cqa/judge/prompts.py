@@ -31,15 +31,17 @@ EXAMPLE = {
          "evidence": [], "improvement": ""},
     ],
     "key_facts": {
-        "homework_assigned": True,
+        "homework_assigned": "yes",
         "homework_what": "solve 5 fork puzzles on the portal",
         "new_joiners": "none",
         "children_greeted_by_name": 2,
-        "recap_present": False,
+        "recap_present": "no",
         "evidence": [
-            {"fact": "homework_assigned", "timestamp": "00:52:10", "speaker": "TUTOR",
+            {"fact": "homework_assigned", "value": "yes", "timestamp": "00:52:10", "speaker": "TUTOR",
              "quote": "for homework solve the five fork puzzles"},
-            {"fact": "children_greeted_by_name", "timestamp": "00:00:42", "speaker": "TUTOR",
+            {"fact": "recap_present", "value": "no", "timestamp": "00:54:30", "speaker": "TUTOR",
+             "quote": "okay that's it for today, bye everyone"},
+            {"fact": "children_greeted_by_name", "value": "yes", "timestamp": "00:00:42", "speaker": "TUTOR",
              "quote": "S1, how was your exam yesterday?"},
         ],
     },
@@ -50,14 +52,14 @@ EXAMPLE = {
 
 
 CODE_ONLY_STATS = {"connectivity_incidents_s"}  # used by code scorers (D14), kept out of the judge input
-CODE_ONLY_VISUAL = {"pct_frozen_camera"}
+CODE_ONLY_VISUAL = {"pct_frozen_camera", "median_face_brightness"}
 EVIDENCE_FIRST_ORDER = ["id", "observations", "evidence", "improvement", "insufficient_evidence", "score"]
 
 
 FACTS_DRIVE_RULE = (
-    "\n   Also report rapport_before_content (true if the tutor chats personally with the children, beyond a hello, "
-    "before teaching starts) and each_child_asked_individually (true if every child present is asked at least one "
-    "question individually or by name), each true one with a verbatim quote."
+    ", rapport_before_content (the tutor chats personally with the children, beyond a hello, before teaching "
+    "starts) and each_child_asked_individually (every child present is asked at least one question individually or "
+    "by name)"
 )
 
 
@@ -74,9 +76,9 @@ def example() -> dict:
         ex = {**ex, "criteria": [{k: c[k] for k in EVIDENCE_FIRST_ORDER if k in c} for c in ex["criteria"]]}
     if s.facts_drive:  # ablation A2: two more yes/no facts, each true one with a quote
         kf = {k: v for k, v in ex["key_facts"].items() if k != "evidence"}
-        rapport = {"fact": "rapport_before_content", "timestamp": "00:00:42", "speaker": "TUTOR",
+        rapport = {"fact": "rapport_before_content", "value": "yes", "timestamp": "00:00:42", "speaker": "TUTOR",
                    "quote": "S1, how was your exam yesterday?"}  # fmt: skip
-        kf.update(rapport_before_content=True, each_child_asked_individually=False)
+        kf.update(rapport_before_content="yes", each_child_asked_individually="unknown")
         ex = {**ex, "key_facts": {**kf, "evidence": [*ex["key_facts"]["evidence"], rapport]}}
     return ex
 
@@ -123,12 +125,15 @@ Rules:
    are missing from that transcript).
 8. Do not score visual presence; it is measured from video frames separately. Use the video metrics only
    as context for technical_quality.
-9. Also report "key_facts": homework_assigned (specific work set for after class; say what in homework_what),
-   new_joiners ("invited" if a new child is asked to introduce themselves, "not_invited" if a new child joins
-   and is not, "none" if no new child is apparent), children_greeted_by_name (distinct children greeted or
-   chatted with by name before teaching starts), recap_present (the tutor summarises what was learned near the
-   end). Give one verbatim quote in key_facts.evidence for each true or non-zero fact, with its fact name.
-   A true fact without a verifiable quote is counted as false.{_extra_facts_rule()}
+9. Also report "key_facts". homework_assigned (specific work set for after class; say what in homework_what) and
+   recap_present (the tutor summarises what was learned near the end){_extra_facts_rule()} are each "yes", "no" or
+   "unknown". new_joiners is "invited" (a new child is asked to introduce themselves), "not_invited" (a new child
+   joins and is not), "none" (no new child is apparent) or "unknown". children_greeted_by_name counts distinct
+   children greeted or chatted with by name before teaching starts.
+   Every "yes" or "invited" needs a verbatim quote showing it, with "value": "yes". Every "no" or "not_invited"
+   needs a verbatim quote showing the opposite, with "value": "no" (e.g. the line where teaching starts with no
+   greeting before it, or the goodbye with no homework set). Put each in key_facts.evidence with its fact name.
+   If you cannot quote either way, say "unknown". A fact without a verifiable quote is counted as unknown.
 
 Return a single json object with exactly these keys: "transcript_usable", "transcript_note",
 "criteria" (one entry for each of: {ids}), "key_facts", "summary", "strengths", "improvements".

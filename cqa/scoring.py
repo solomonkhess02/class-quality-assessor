@@ -144,31 +144,61 @@ def label_excluded(s: Settings | None = None) -> set[str]:
 SEVERITY_CRITICAL_WEIGHT = 10  # in the ordering value, any critical problem outranks all moderate ones
 
 
+# A3b: a face is underexposed when its luma is more than one stop below middle grey (18% grey = 118 in sRGB,
+# 9% = 85). Fixed from this definition before the run, not fitted.
+FACE_UNDEREXPOSED_LUMA = 85.0
+
+
+def severity_checks(
+    criteria: list[CriterionResult], kf: KeyFacts | None, visual: VisualReport | None, s: Settings
+) -> dict[str, tuple[bool | None, str, str]]:
+    """Every severity check as {id: (fires: True | False | None = unknown, tier, description)} (A3b)."""
+    score = {c.id: (None if c.insufficient_evidence else c.score) for c in criteria}
+    checks: dict[str, tuple[bool | None, str, str]] = {}
+
+    def fact(name: str) -> bool | None:  # fires on a verified "no"; unknown never fires
+        state = getattr(kf, name) if kf is not None else "unknown"
+        return None if state == "unknown" else state == "no"
+
+    if s.facts_drive:
+        checks["no_rapport"] = (fact("rapport_before_content"), "critical", "no rapport before content")
+    else:
+        opening = score.get("opening_rapport")
+        checks["no_rapport"] = (None if opening is None else opening <= 2, "critical", "no rapport (opening <= 2)")
+    has_video = visual is not None and visual.n_frames > 0
+    face_low = visual.pct_face_camera < s.visual_min_face_pct if has_video else None  # type: ignore[union-attr]
+    face_desc = f"tutor face in only {visual.pct_face_camera:.0f}% of camera frames" if has_video else "face share"  # type: ignore[union-attr]
+    checks["face_low"] = (face_low, "critical" if s.face_check_critical else "moderate", face_desc)
+    # "no 8x8 background" is a critical problem in the spec but is not measured yet (ablation A4)
+    checks["no_homework"] = (fact("homework_assigned"), "moderate", "no homework")
+    checks["no_recap"] = (fact("recap_present"), "moderate", "no closing recap")
+    energy = score.get("communication")
+    checks["low_energy"] = (None if energy is None else energy <= 2, "moderate", "low energy")
+    face_luma = visual.median_face_brightness if has_video else None  # type: ignore[union-attr]
+    checks["dark_face"] = (
+        None if face_luma is None else face_luma < FACE_UNDEREXPOSED_LUMA,
+        "moderate",
+        f"lighting: face luma {face_luma:.0f} (< {FACE_UNDEREXPOSED_LUMA:.0f})"
+        if face_luma is not None
+        else "lighting",
+    )
+    return checks
+
+
 def severity_findings(
     criteria: list[CriterionResult], kf: KeyFacts | None, visual: VisualReport | None, s: Settings
 ) -> tuple[list[str], list[str], bool]:
-    """(critical problems, moderate problems, positive evidence for Excellent)."""
-    score = {c.id: (None if c.insufficient_evidence else c.score) for c in criteria}
+    """(critical problems, moderate problems, positive evidence for Excellent). Checks in LABEL_EXCLUDE (by check id,
+    or "communication" for low_energy) are shown in the report but not counted (D15, D19)."""
+    excluded = label_excluded(s)
     critical: list[str] = []
     moderate: list[str] = []
-    if s.facts_drive and kf is not None:
-        if not kf.rapport_before_content:
-            critical.append("no rapport before content")
-    elif score.get("opening_rapport") is not None and score["opening_rapport"] <= 2:  # type: ignore[operator]
-        critical.append("no rapport before content (opening scored <= 2)")
-    if visual is not None and visual.n_frames and visual.pct_face_camera < s.visual_min_face_pct:
-        critical.append(f"tutor face in only {visual.pct_face_camera:.0f}% of camera frames")
-    # "no 8x8 background" is a critical problem in the spec but is not measured yet (ablation A4)
-    if kf is not None and not kf.homework_assigned:
-        moderate.append("no homework")
-    if kf is not None and not kf.recap_present:
-        moderate.append("no closing recap")
-    energy = score.get("communication")
-    if "communication" not in label_excluded(s) and energy is not None and energy <= 2:
-        moderate.append("low energy")
-    if visual is not None and visual.n_frames and visual.pct_dark > s.visual_max_dark_pct:
-        moderate.append(f"lighting: {visual.pct_dark:.0f}% dark frames")
-    positive = score.get("individual_engagement") == 4 and (score.get("opening_rapport") or 0) >= 3
+    for cid, (fires, tier, desc) in severity_checks(criteria, kf, visual, s).items():
+        if not fires or cid in excluded or (cid == "low_energy" and "communication" in excluded):
+            continue
+        (critical if tier == "critical" else moderate).append(desc)
+    # post-hoc (A3b): positive evidence as facts, consistent with A2
+    positive = kf is not None and kf.rapport_before_content == "yes" and kf.each_child_asked_individually == "yes"
     return critical, moderate, positive
 
 
@@ -241,7 +271,20 @@ def assess(
         critical, moderate, positive = severity_findings(criteria, judged.key_facts, visual, s)
         severity_lbl, severity, margin = severity_label(critical, moderate, positive)
         found = critical + moderate
-        meta.update({"severity": severity, "critical": critical, "moderate": moderate, "severity_label": severity_lbl})
+        checks = severity_checks(criteria, judged.key_facts, visual, s)
+        meta.update(
+            {
+                "severity": severity,
+                "critical": critical,
+                "moderate": moderate,
+                "severity_label": severity_lbl,
+                "checks": {cid: fires for cid, (fires, _, _) in checks.items()},
+            }
+        )
+        if checks["face_low"][0] and not s.face_check_critical:
+            warnings.append(
+                "Low face share counted as a moderate problem only: the screen-share tag is not yet validated (E6)."
+            )
     if n_scored < MIN_SCORED_FOR_LABEL:
         label: Label = "Average"
         warnings.append(f"Only {n_scored} criteria could be scored; the label is a placeholder.")

@@ -77,10 +77,10 @@ def test_key_facts_without_verified_quote_are_reset():
                          quote="Today we learned about forks and pins"),  # invented
         ],
     )  # fmt: skip
-    out, dropped, unsupported = verify_key_facts(kf, TRANSCRIPT, 90)
+    out, dropped, unsupported, _ = verify_key_facts(kf, TRANSCRIPT, 90)
     assert dropped == 1
-    assert out.homework_assigned is True and out.homework_what == "puzzles 1 to 5"
-    assert out.recap_present is False
-    assert out.new_joiners == "none"
+    assert out.homework_assigned == "yes" and out.homework_what == "puzzles 1 to 5"
+    assert out.recap_present == "unknown"  # three-state facts (A3b): no verified quote -> unknown
+    assert out.new_joiners == "unknown"
     assert out.children_greeted_by_name == 0
     assert sorted(unsupported) == ["children_greeted_by_name", "new_joiners", "recap_present"]

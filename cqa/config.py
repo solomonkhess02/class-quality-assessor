@@ -27,6 +27,7 @@ class Settings(BaseModel):
     judge_evidence_first: bool = True  # A0 (kept, E13): reasons before the score in the judge's example
     tech_scorer: str = "code"  # A1 (kept, E14): "llm" | "code" (DECISIONS D14)
     label_exclude: str = "communication"  # A1 (kept, E14): shown, not in the label (D15); "none" = exclude nothing
+    face_check_critical: bool = False  # A3b: low face share is moderate + warning until screen-share tags are validated
     facts_drive: bool = True  # A2 (kept, E15): verified yes/no facts bound opening, engagement, closure scores
 
     # Binaries (names on PATH by default; full paths on the Windows dev machine)
