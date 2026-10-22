@@ -9,6 +9,14 @@ from cqa.schemas import Transcript, Turn
 _TIME_RE = re.compile(r"(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{1,3})")
 _SPEAKER_RE = re.compile(r"^([^:]{1,60}):\s+(.*)$")
 _QUOTES = str.maketrans({"’": "'", "‘": "'", "“": '"', "”": '"'})
+# Written by cqa.transcript.formats.to_vtt for a transcript cut to windows (recordings over 2 h); a NOTE block,
+# so other VTT readers ignore it
+WINDOWS_NOTE = "NOTE cqa-windows"
+_WINDOW_RE = re.compile(r"(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)")
+
+
+def parse_windows_note(block: str) -> list[tuple[float, float]]:
+    return [(float(a), float(b)) for a, b in _WINDOW_RE.findall(block[len(WINDOWS_NOTE) :])]
 
 
 def _seconds(ts: str) -> float:
@@ -45,8 +53,12 @@ def merge_turns(turns: list[Turn], gap_s: float = 1.5) -> list[Turn]:
 def parse_vtt(text: str, merge_gap_s: float = 1.5) -> Transcript:
     text = text.lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n").translate(_QUOTES)
     turns: list[Turn] = []
+    windows: list[tuple[float, float]] = []
     speaker = "UNKNOWN"
     for block in re.split(r"\n\s*\n", text):
+        if block.strip().startswith(WINDOWS_NOTE):
+            windows = parse_windows_note(block.strip())
+            continue
         lines = [ln for ln in block.split("\n") if ln.strip()]
         idx = next((i for i, ln in enumerate(lines) if "-->" in ln), None)
         if idx is None:
@@ -64,4 +76,6 @@ def parse_vtt(text: str, merge_gap_s: float = 1.5) -> Transcript:
             turns.append(Turn(start_s=start, end_s=end, speaker=speaker, text=cue_text))
     turns = merge_turns(turns, merge_gap_s)
     duration = max((t.end_s for t in turns), default=0.0)
-    return Transcript(source="vtt", duration_s=duration, turns=turns)
+    if windows:
+        duration = max(duration, windows[-1][1])  # the class runs to the end of the last window
+    return Transcript(source="vtt", duration_s=duration, turns=turns, windows=windows)

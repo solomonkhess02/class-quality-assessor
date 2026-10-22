@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from cqa.schemas import Transcript, Turn, format_ts
 from cqa.transcript.roles import UNKNOWN
-from cqa.transcript.vtt import merge_turns, parse_vtt
+from cqa.transcript.vtt import WINDOWS_NOTE, merge_turns, parse_vtt
 
 TRANSCRIPT_TYPES = ("vtt", "srt", "txt")
 WORDS_PER_MIN = 150.0  # plain text without timestamps: estimated speaking rate
@@ -131,8 +131,10 @@ def parse_transcript_bytes(data: bytes, suffix: str = "") -> ParsedTranscript:
 
 
 def to_vtt(transcript: Transcript) -> str:
-    """Canonical VTT that cqa.transcript.vtt.parse_vtt reads back to the same turns."""
+    """Canonical VTT that cqa.transcript.vtt.parse_vtt reads back to the same turns (and windows)."""
     out = ["WEBVTT", ""]
+    if transcript.windows:  # so the judge is told which parts were cut out (prompts.windows_note)
+        out += [f"{WINDOWS_NOTE} " + ", ".join(f"{a:.3f}-{b:.3f}" for a, b in transcript.windows), ""]
     for i, t in enumerate(transcript.turns, 1):
         prefix = "" if t.speaker == UNKNOWN else f"{t.speaker}: "
         out += [str(i), f"{_vtt_ts(t.start_s)} --> {_vtt_ts(t.end_s)}", f"{prefix}{t.text}", ""]
@@ -145,6 +147,7 @@ def _vtt_ts(seconds: float) -> str:
 
 
 def restrict_to_windows(transcript: Transcript, windows: list[tuple[float, float]]) -> Transcript:
-    """Keep only the turns that start inside one of the [start, end] windows (recordings over the length limit)."""
+    """Keep only the turns that start inside one of the [start, end] windows (recordings over the length limit),
+    and record the windows, as the whisper path does."""
     turns = [t for t in transcript.turns if any(a <= t.start_s < b for a, b in windows)]
-    return transcript.model_copy(update={"turns": turns})
+    return transcript.model_copy(update={"turns": turns, "windows": list(windows)})

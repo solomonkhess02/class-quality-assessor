@@ -134,8 +134,23 @@ def test_prepare_long_recording_keeps_windows_only(cache, monkeypatch):
     vtt = write(cache, "long.vtt", ("WEBVTT\n" + cues).encode())
     p = ingest.prepare_inputs(write(cache, "v.mp4", b"synthetic"), vtt)
     assert p.vtt != vtt and any("3.0 h long" in n for n in p.notes)
-    kept = parse_vtt(p.vtt.read_text(encoding="utf-8")).turns
+    parsed = parse_vtt(p.vtt.read_text(encoding="utf-8"))
+    kept = parsed.turns
     assert 10 < len(kept) < 60 and kept[0].start_s == 0 and kept[-1].start_s >= 170 * 60
+    # the windows survive the file round trip and the pipeline's role and privacy steps, so the judge is told
+    assert parsed.windows == ingest.long_recording_windows(3 * 3600.0) and parsed.duration_s == 3 * 3600.0
+    from cqa.judge.prompts import windows_note
+    from cqa.transcript.privacy import anonymise
+    from cqa.transcript.roles import assign_roles
+
+    judged = anonymise(assign_roles(parsed))[0]
+    assert judged.windows == parsed.windows
+    assert windows_note(judged).startswith("Only these parts of the class were transcribed: 00:00:00-00:")
+
+
+def test_vtt_without_windows_note_has_no_windows():
+    assert parse_vtt(VTT.decode()).windows == []
+    assert "cqa-windows" not in to_vtt(parse_transcript_bytes(SRT, ".srt").transcript)
 
 
 def test_prepare_bad_transcript_is_input_error(cache):
