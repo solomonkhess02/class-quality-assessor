@@ -72,10 +72,41 @@ def test_play_at_timestamp(tmp_path):
     at.session_state["video_path"] = video
     at.run()
     play = [b for b in at.button if b.label == "▶ 00:00:40"]
-    assert play
+    assert len(play) >= 2  # the quote appears under Key reasons and under its criterion
+    assert not at.get("video")  # no player until a ▶ is pressed
     play[0].click().run()
     assert not at.exception
-    assert at.session_state["play"]
+    assert at.session_state["seek_to"] == 40
+    videos = at.get("video")
+    assert len(videos) == 1 and videos[0].proto.start_time == 40  # one player for the whole page
+
+
+def test_large_recording_gets_timestamps_only(tmp_path, monkeypatch):
+    from cqa import report
+
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"x" * 2048)
+    monkeypatch.setattr(report, "PLAYER_MAX_BYTES", 1024)  # stands in for a recording over 200 MB
+    at = AppTest.from_file(APP, default_timeout=30)
+    at.session_state["assessment"] = synthetic_assessment()
+    at.session_state["video_path"] = video
+    at.run()
+    assert not at.exception
+    assert not [b for b in at.button if b.label.startswith("▶")] and not at.get("video")
+    assert any("not played here" in c.value for c in at.caption)
+    assert any("`00:00:40`" in m.value for m in at.markdown)  # the timestamp is still shown
+
+
+def test_player_mode_size_switch(tmp_path, monkeypatch):
+    from cqa import report
+
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"x" * 100)
+    monkeypatch.setattr(report, "PLAYER_MAX_BYTES", 100)
+    assert report.player_mode(video) == "player"
+    video.write_bytes(b"x" * 101)
+    assert report.player_mode(video) == "too_large"
+    assert report.player_mode(tmp_path / "gone.mp4") == "none" and report.player_mode(None) == "none"
 
 
 def test_report_sections():

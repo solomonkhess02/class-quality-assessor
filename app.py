@@ -15,10 +15,12 @@ from cqa.models import ensure_models, missing_models
 from cqa.pipeline import run
 from cqa.report import (
     NEXT_LEVEL,
+    PLAYER_MAX_BYTES,
     cannot_check,
     first_sentence,
     key_reasons,
     next_level_actions,
+    player_mode,
     reliability_notes,
     short,
 )
@@ -113,24 +115,45 @@ def assess(video: Path | None, vtt: Path | None) -> Assessment | None:
 # --- report ---
 
 
-def playable_video() -> Path | None:
+def kept_video() -> Path | None:
     p = st.session_state.get("video_path")
-    return p if p is not None and Path(p).exists() else None
+    return Path(p) if p is not None else None
+
+
+def seek(seconds: int) -> None:
+    st.session_state["seek_to"] = seconds
+
+
+def show_player() -> None:
+    """The page's single video player; the ▶ buttons only move its start time (seek_to)."""
+    mode = player_mode(kept_video())
+    if mode == "too_large":
+        st.caption(
+            f"The recording is over {PLAYER_MAX_BYTES // 2**20} MB, so it is not played here; open it in your own "
+            "player at the timestamps shown."
+        )
+    elif mode == "player":
+        if "seek_to" in st.session_state:
+            st.video(str(kept_video()), start_time=st.session_state["seek_to"])
+        else:
+            st.caption("Press ▶ next to a quote to play the recording from that moment.")
 
 
 def evidence_line(e: Evidence, key: str, prefix: str = "") -> None:
-    """One verified quote, with a button that plays the recording from its timestamp."""
-    video = playable_video()
+    """One verified quote, with a button that moves the player to its timestamp."""
     text = f"{prefix}`{e.timestamp}` **{e.speaker}**: “{short(e.quote)}”"
-    if video is None:
+    if player_mode(kept_video()) != "player":
         st.markdown(f"- {text}")
         return
     c1, c2 = st.columns([6, 1])
     c1.markdown(f"- {text}")
-    if c2.button(f"▶ {e.timestamp}", key=f"play-{key}", help="Play the recording from this moment"):
-        st.session_state["play"] = key
-    if st.session_state.get("play") == key:
-        st.video(str(video), start_time=parse_ts(e.timestamp))
+    c2.button(
+        f"▶ {e.timestamp}",
+        key=f"play-{key}",
+        help="Play the recording above from this moment",
+        on_click=seek,  # callbacks run before the rerun, so the player above already sees the new time
+        args=(parse_ts(e.timestamp),),
+    )
 
 
 def show_header(a: Assessment) -> None:
@@ -144,6 +167,7 @@ def show_header(a: Assessment) -> None:
 
 
 def show_reasons(a: Assessment) -> None:
+    show_player()
     st.subheader("Key reasons")
     reasons = key_reasons(a)
     if not reasons:
@@ -327,7 +351,7 @@ def run_once(video, drive_url: str | None, transcript) -> None:
             }
         st.session_state["assessment"] = assessment
         st.session_state["video_path"] = video_path if assessment is not None else None
-        st.session_state.pop("play", None)
+        st.session_state.pop("seek_to", None)
     except InputError as e:
         st.error(str(e))
     finally:

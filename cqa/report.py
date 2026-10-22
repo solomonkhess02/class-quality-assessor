@@ -4,6 +4,7 @@ what could not be checked, reliability notes."""
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from cqa.config import get_settings
 from cqa.judge.rubric import BY_ID
@@ -21,6 +22,15 @@ CHECK_SOURCES: dict[str, tuple[str, str | None]] = {
     "dark_face": ("visual_presence", None),
 }
 NEXT_LEVEL = {"Poor": "Average", "Average": "Good", "Good": "Excellent"}
+# st.video holds the whole file in server memory; larger recordings get timestamps only
+PLAYER_MAX_BYTES = 200 * 1024 * 1024
+
+
+def player_mode(video: Path | None) -> str:
+    """ "player" (one in-page player), "too_large" (timestamps only) or "none" (no recording kept)."""
+    if video is None or not video.exists():
+        return "none"
+    return "player" if video.stat().st_size <= PLAYER_MAX_BYTES else "too_large"
 
 
 @dataclass
