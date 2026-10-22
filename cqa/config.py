@@ -26,7 +26,7 @@ class Settings(BaseModel):
     # Ablation switches (docs/EVALUATION.md); defaults are the last kept configuration
     judge_evidence_first: bool = True  # A0 (kept, E13): reasons before the score in the judge's example
     tech_scorer: str = "code"  # A1 (kept, E14): "llm" | "code" (DECISIONS D14)
-    label_exclude: str = "communication"  # A1 (kept, E14): shown but left out of the label (DECISIONS D15)
+    label_exclude: str = "communication"  # A1 (kept, E14): shown, not in the label (D15); "none" = exclude nothing
     facts_drive: bool = False  # A2: verified yes/no facts bound the opening, engagement and closure scores
 
     # Binaries (names on PATH by default; full paths on the Windows dev machine)

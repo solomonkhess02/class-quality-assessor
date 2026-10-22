@@ -101,7 +101,7 @@ def test_label_exclude_keeps_criterion_but_not_in_problem_count(env):
         CriterionResult(id="communication", score=2), CriterionResult(id="closure_homework", score=3),
         CriterionResult(id="technical_quality", score=2),
     ])  # fmt: skip
-    env(LABEL_EXCLUDE="", TECH_SCORER="llm", AGGREGATION="problems")
+    env(LABEL_EXCLUDE="none", TECH_SCORER="llm", AGGREGATION="problems")
     base = assess(judged, _visual(0), _stats(60, []), "vtt")
     env(LABEL_EXCLUDE="communication", TECH_SCORER="code", AGGREGATION="problems")
     a1 = assess(judged, _visual(0), _stats(60, []), "vtt")
@@ -109,3 +109,60 @@ def test_label_exclude_keeps_criterion_but_not_in_problem_count(env):
     assert a1.meta["problems"] == 0 and a1.label == "Excellent"  # communication excluded, tech fine by code
     assert {c.id for c in a1.criteria} == {c.id for c in base.criteria}  # still shown
     assert next(c for c in a1.criteria if c.id == "technical_quality").score == 3
+
+
+def _kf(**facts):
+    from cqa.schemas import KeyFacts
+
+    return KeyFacts(**facts)
+
+
+def test_fact_bounds_clamp_scores_and_cap_wins():
+    from cqa.judge.judge import apply_fact_bounds
+    from cqa.schemas import CriterionResult as C
+
+    crits = [C(id="opening_rapport", score=2), C(id="individual_engagement", score=4),
+             C(id="closure_homework", score=2), C(id="communication", score=3)]  # fmt: skip
+    kf = _kf(rapport_before_content=True, each_child_asked_individually=False, homework_assigned=True)
+    out = {c.id: c for c in apply_fact_bounds(crits, kf)}
+    assert out["opening_rapport"].score == 3  # raised: rapport before content
+    assert out["individual_engagement"].score == 2  # capped: not every child asked
+    assert out["closure_homework"].score == 3  # raised by homework, capped at 3 without a recap
+    assert out["communication"].score == 3  # not fact-bound
+    assert "raised to 3" in out["opening_rapport"].observations[-1]
+    # a new joiner left out caps the opening even with rapport (cap wins over floor)
+    capped = apply_fact_bounds(
+        [C(id="opening_rapport", score=4)], _kf(rapport_before_content=True, new_joiners="not_invited")
+    )
+    assert capped[0].score == 2
+
+
+def test_fact_bounds_fill_unscored_and_respect_recap():
+    from cqa.judge.judge import apply_fact_bounds
+    from cqa.schemas import CriterionResult as C
+
+    out = apply_fact_bounds([C(id="closure_homework", score=None)], _kf(homework_assigned=True, recap_present=True))
+    assert out[0].score == 3 and not out[0].insufficient_evidence
+    out = apply_fact_bounds([C(id="closure_homework", score=4)], _kf(recap_present=True))
+    assert out[0].score == 3  # no homework: at most 3 even with a recap
+    out = apply_fact_bounds([C(id="closure_homework", score=3)], _kf())
+    assert out[0].score == 2  # neither homework nor recap
+
+
+def test_new_facts_without_quote_are_reset():
+    from cqa.judge.judge import verify_key_facts
+    from cqa.schemas import Transcript
+
+    kf = _kf(rapport_before_content=True, each_child_asked_individually=True)
+    out, _, reset = verify_key_facts(kf, Transcript(source="vtt"), 90)
+    assert not out.rapport_before_content and not out.each_child_asked_individually
+    assert set(reset) == {"rapport_before_content", "each_child_asked_individually"}
+
+
+def test_facts_drive_prompt_switch(env):
+    env(FACTS_DRIVE="false")
+    off = prompts.system_prompt()
+    env(FACTS_DRIVE="true")
+    on = prompts.system_prompt()
+    assert "rapport_before_content" not in off
+    assert "each_child_asked_individually" in on and on.startswith(off.split("Rules:")[0])

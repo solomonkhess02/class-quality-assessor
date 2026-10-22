@@ -18,6 +18,7 @@ from cqa.judge import prompts
 from cqa.judge.llm import call_json
 from cqa.judge.rubric import LLM_CRITERIA
 from cqa.schemas import (
+    CriterionResult,
     Evidence,
     JudgeOutput,
     KeyFacts,
@@ -102,8 +103,61 @@ def verify_key_facts(kf: KeyFacts, transcript: Transcript, window_s: float) -> t
         updates["children_greeted_by_name"] = 0
     if kf.new_joiners == "invited" and "new_joiners" not in supported:
         updates["new_joiners"] = "none"  # unknown whether a new child joined
+    for fact in ("rapport_before_content", "each_child_asked_individually"):
+        if getattr(kf, fact) and fact not in supported:
+            updates[fact] = False
     reset = [k for k in updates if k not in ("evidence", "homework_what")]
     return kf.model_copy(update=updates), dropped, reset
+
+
+def fact_bounds(kf: KeyFacts) -> dict[str, tuple[int | None, int | None, list[str]]]:
+    """Ablation A2: (floor, cap, reasons) per criterion from the verified yes/no facts, so a fact and its criterion
+    cannot contradict each other. Rules written before results (docs/EVALUATION.md, A2)."""
+    bounds: dict[str, tuple[int | None, int | None, list[str]]] = {}
+    no_intro = kf.new_joiners == "not_invited"
+    if not kf.rapport_before_content or no_intro:
+        why = (["no personal chat before teaching"] if not kf.rapport_before_content else []) + (
+            ["a new joiner was not invited to introduce themselves"] if no_intro else []
+        )
+        bounds["opening_rapport"] = (None, 2, why)
+    else:
+        bounds["opening_rapport"] = (3, None, ["personal chat before teaching (verified quote)"])
+    if kf.each_child_asked_individually:
+        bounds["individual_engagement"] = (3, None, ["every child asked individually (verified quote)"])
+    else:
+        bounds["individual_engagement"] = (None, 2, ["not every child was asked individually"])
+    if kf.homework_assigned:
+        bounds["closure_homework"] = (3, None if kf.recap_present else 3, ["homework assigned (verified quote)"]
+                                      + ([] if kf.recap_present else ["no closing recap"]))  # fmt: skip
+    else:
+        cap = 3 if kf.recap_present else 2
+        bounds["closure_homework"] = (None, cap, ["no homework assigned"] + ([] if kf.recap_present else ["no recap"]))
+    return bounds
+
+
+def apply_fact_bounds(criteria: list[CriterionResult], kf: KeyFacts) -> list[CriterionResult]:
+    """Clamp each fact-bound criterion into [floor, cap] (cap wins); an unscored one takes the floor, else the cap."""
+    bounds = fact_bounds(kf)
+    out = []
+    for c in criteria:
+        if c.id not in bounds:
+            out.append(c)
+            continue
+        floor, cap, why = bounds[c.id]
+        old = None if c.insufficient_evidence else c.score
+        new = old if old is not None else (floor or cap)
+        if floor is not None and new is not None and new < floor:
+            new = floor
+        if cap is not None and new is not None and new > cap:
+            new = cap
+        if new != old:
+            verb = "set" if old is None else ("raised" if new > old else "capped")
+            note = f"Score {verb} to {new} by verified facts: {'; '.join(why)}."
+            c = c.model_copy(
+                update={"score": new, "insufficient_evidence": False, "observations": [*c.observations, note]}
+            )
+        out.append(c)
+    return out
 
 
 def generic_observations(observations: list[str]) -> list[str]:
@@ -170,6 +224,8 @@ def _judge_direct(
         dropped += kf_dropped
         if reset:
             warnings.append(f"Key facts without a verified quote were reset: {', '.join(reset)}")
+        if s.facts_drive and verified.transcript_usable:
+            verified = verified.model_copy(update={"criteria": apply_fact_bounds(verified.criteria, kf)})
     meta.update({"design": "direct", "evidence_total": total, "evidence_dropped": dropped})
     return verified, warnings, meta
 

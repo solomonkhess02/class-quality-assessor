@@ -124,9 +124,9 @@ def score_technical(
 
 
 def label_excluded(s: Settings | None = None) -> set[str]:
-    """D15: criteria shown in the report but left out of the label (LABEL_EXCLUDE)."""
+    """D15: criteria shown in the report but left out of the label (LABEL_EXCLUDE; "none" = exclude nothing)."""
     s = s or get_settings()
-    return {c.strip() for c in s.label_exclude.split(",") if c.strip()}
+    return {c.strip() for c in s.label_exclude.split(",") if c.strip() and c.strip().lower() != "none"}
 
 
 def confidence(

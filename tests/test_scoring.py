@@ -1,5 +1,6 @@
 import pytest
 
+from cqa import config
 from cqa.schemas import CriterionResult, JudgeOutput, VisualReport
 from cqa.scoring import label_for, score_visual, weighted_score
 
@@ -11,6 +12,17 @@ def crit(cid: str, score: int | None, insufficient: bool = False) -> CriterionRe
 
 
 ALL_LLM = ["opening_rapport", "individual_engagement", "communication", "closure_homework", "technical_quality"]
+
+
+@pytest.fixture(autouse=True)
+def phase1_scoring(monkeypatch):
+    """These tests cover the base scoring rules: LLM-scored technical quality, nothing left out of the label
+    (the A1 switches are tested in test_ablations.py)."""
+    monkeypatch.setenv("TECH_SCORER", "llm")
+    monkeypatch.setenv("LABEL_EXCLUDE", "none")
+    config.get_settings.cache_clear()
+    yield
+    config.get_settings.cache_clear()
 
 
 def judge(scores: dict[str, int | None]) -> JudgeOutput:

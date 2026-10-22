@@ -117,6 +117,9 @@ class KeyFacts(BaseModel):
     new_joiners: Literal["invited", "not_invited", "none"] = "none"
     children_greeted_by_name: int = 0
     recap_present: bool = False
+    # ablation A2 (FACTS_DRIVE): reported only when the switch is on
+    rapport_before_content: bool = False
+    each_child_asked_individually: bool = False
     evidence: list[FactEvidence] = Field(default_factory=list)
 
 

@@ -54,13 +54,31 @@ CODE_ONLY_VISUAL = {"pct_frozen_camera"}
 EVIDENCE_FIRST_ORDER = ["id", "observations", "evidence", "improvement", "insufficient_evidence", "score"]
 
 
+FACTS_DRIVE_RULE = (
+    "\n   Also report rapport_before_content (true if the tutor chats personally with the children, beyond a hello, "
+    "before teaching starts) and each_child_asked_individually (true if every child present is asked at least one "
+    "question individually or by name), each true one with a verbatim quote."
+)
+
+
+def _extra_facts_rule() -> str:
+    return FACTS_DRIVE_RULE if get_settings().facts_drive else ""
+
+
 def example() -> dict:
     """The output example. With JUDGE_EVIDENCE_FIRST (ablation A0) each criterion lists observations and
     evidence before the score, so the model writes its reasons before committing to a number."""
-    if not get_settings().judge_evidence_first:
-        return EXAMPLE
-    criteria = [{k: c[k] for k in EVIDENCE_FIRST_ORDER if k in c} for c in EXAMPLE["criteria"]]
-    return {**EXAMPLE, "criteria": criteria}
+    s = get_settings()
+    ex = EXAMPLE
+    if s.judge_evidence_first:
+        ex = {**ex, "criteria": [{k: c[k] for k in EVIDENCE_FIRST_ORDER if k in c} for c in ex["criteria"]]}
+    if s.facts_drive:  # ablation A2: two more yes/no facts, each true one with a quote
+        kf = {k: v for k, v in ex["key_facts"].items() if k != "evidence"}
+        rapport = {"fact": "rapport_before_content", "timestamp": "00:00:42", "speaker": "TUTOR",
+                   "quote": "S1, how was your exam yesterday?"}  # fmt: skip
+        kf.update(rapport_before_content=True, each_child_asked_individually=False)
+        ex = {**ex, "key_facts": {**kf, "evidence": [*ex["key_facts"]["evidence"], rapport]}}
+    return ex
 
 
 def _rubric_text() -> str:
@@ -110,7 +128,7 @@ Rules:
    and is not, "none" if no new child is apparent), children_greeted_by_name (distinct children greeted or
    chatted with by name before teaching starts), recap_present (the tutor summarises what was learned near the
    end). Give one verbatim quote in key_facts.evidence for each true or non-zero fact, with its fact name.
-   A true fact without a verifiable quote is counted as false.
+   A true fact without a verifiable quote is counted as false.{_extra_facts_rule()}
 
 Return a single json object with exactly these keys: "transcript_usable", "transcript_note",
 "criteria" (one entry for each of: {ids}), "key_facts", "summary", "strengths", "improvements".
