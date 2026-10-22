@@ -23,3 +23,9 @@ docker run -p 7860:7860 -e DEEPSEEK_API_KEY=... cqa
 ```
 
 Recordings and transcripts are confidential and are never stored in this repository.
+
+## Known limitations
+- Rapport is measured as a warm-up between the tutor's first greeting and the first line of lesson content. A tutor who builds rapport by questioning each child individually at the start, without a separate chat, is marked as having no rapport (e.g. one Average class in the labelled set becomes Poor).
+- The tutor-face check is a moderate problem, not a critical one: the screen-share tag agrees with hand labels on only 74% of sampled frames (target 85%), so a missing face cannot yet be told apart from an untagged screen share.
+- The 8x8 branded background is not checked yet.
+- Accuracy figures come from 10 labelled classes whose organiser notes also shaped the rule, so they are optimistic.

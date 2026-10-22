@@ -1,18 +1,18 @@
-# Scorecard: a3c_rapport_warmup
+# Scorecard: a3d_rapport_unknown
 
-2026-10-22, commit 80cb576, 3 runs, VTT + visual. Judge deepseek-flash, design direct, aggregation severity, temperature 0.2, thinking disabled, prompt hash 00c7e5605d81.
+2026-10-22, commit 3b85c89, 3 runs, VTT + visual. Judge deepseek-flash, design direct, aggregation severity, temperature 0.2, thinking disabled, prompt hash 997d6ef78f15.
 Values are mean [min-max] across runs. Labels: weak and quality issue -> Poor. Criterion points: score <= 2 catches a criticised point, >= 3 a praised one; unscored counts as missed.
 
 | metric | value | target | n |
 |---|---|---|---|
-| Pairwise ordering (problem count or severity, ties 0.5) | 77% [76%-78%] | >= 80% | 36 pairs |
+| Pairwise ordering (problem count or severity, ties 0.5) | 88% [88%-89%] | >= 80% | 36 pairs |
 | Exact label | 5.0/10 [5-5] | - | 10 |
-| Within one level | 8.7/10 [8-9] | >= 9/10 | 10 |
-| MAE (levels) | 0.63 [0.60-0.70] | <= 0.6 | 10 |
-| Bias (predicted - true; negative = harsh) | -0.63 [-0.70 to -0.60] | within +-0.3 | 10 |
+| Within one level | 9.7/10 [9-10] | >= 9/10 | 10 |
+| MAE (levels) | 0.53 [0.50-0.60] | <= 0.6 | 10 |
+| Bias (predicted - true; negative = harsh) | -0.53 [-0.60 to -0.50] | within +-0.3 | 10 |
 | Weakness recall | 50% [50%-50%] | >= 75% | 18 |
-| Strength recall | 90% [88%-94%] | - | 17 |
-| Balanced criterion accuracy | 70% [69%-72%] | >= 75% | 35 |
+| Strength recall | 96% [94%-100%] | - | 17 |
+| Balanced criterion accuracy | 73% [72%-75%] | >= 75% | 35 |
 | Feedback recall (all points) | 66% [65%-67%] | >= 60% | 47 |
 | Feedback recall, transcript-observable (T) | 86% [86%-88%] | - | 28 |
 | Feedback recall, video-observable (V) | 21% [21%-21%] | - | 12 |
@@ -23,9 +23,9 @@ Values are mean [min-max] across runs. Labels: weak and quality issue -> Poor. C
 | Run agreement (label identical in all runs) | 9/10 | >= 8/10 | 3 runs |
 | Mean criterion score range across runs | 0.10 | - | class x criterion |
 | Confidence on correct labels | 0.75 [0.75-0.75] | correct > wrong | - |
-| Confidence on wrong labels | 0.75 [0.75-0.75] |  | - |
+| Confidence on wrong labels | 0.80 [0.80-0.80] |  | - |
 | Confidence with run agreement, correct labels | 0.88 [0.88-0.88] | correct > wrong | mean of app confidence and run agreement |
-| Confidence with run agreement, wrong labels | 0.84 [0.84-0.84] |  | - |
+| Confidence with run agreement, wrong labels | 0.87 [0.87-0.87] |  | - |
 | Privacy gate (scripts/leak_audit.py) | PENDING REVIEW (hits >= 85: 0, labelled names left: 0, unlabelled 70-84 to review: 4); over-scrub, monitored not gated: 3 classes over 0.5% | pass | 11 classes |
 
 Feedback grader: DeepSeek, temperature 0, sees only the report and the points. Verdicts whose cited line was not in the report were set to no: 0 across runs.
@@ -34,7 +34,7 @@ Feedback grader: DeepSeek, temperature 0, sees only the report and the points. V
 
 | criterion | weakness recall | n | strength recall | n |
 |---|---|---|---|---|
-| opening_rapport | 100% [100%-100%] | 3 | 44% [33%-67%] | 3 |
+| opening_rapport | 100% [100%-100%] | 3 | 78% [67%-100%] | 3 |
 | individual_engagement | - | 0 | 100% [100%-100%] | 7 |
 | communication | 0% [0%-0%] | 5 | - | 0 |
 | closure_homework | 75% [75%-75%] | 4 | 100% [100%-100%] | 3 |
@@ -47,7 +47,7 @@ Feedback grader: DeepSeek, temperature 0, sees only the report and the points. V
 |---|---|---|---|---|
 | Poor | 12 | 0 | 0 | 0 |
 | Average | 6 | 0 | 0 | 0 |
-| Good | 3 | 0 | 3 | 0 |
+| Good | 0 | 3 | 3 | 0 |
 | Excellent | 0 | 1 | 5 | 0 |
 
 ## Trivial baselines (any real result must beat these)
@@ -66,7 +66,7 @@ Feedback grader: DeepSeek, temperature 0, sees only the report and the points. V
 | average/B516 | Average | Poor / Poor / Poor | 59 / 59 / 59 | 12 / 12 / 12 | no rapport before content; no closing recap; lighting: face luma 75 (< 85) | 0.9/1 / 0.9/1 / 0.9/1 | 0.75 / 0.75 / 0.75 |
 | excellent/B472 | Excellent | Good / Good / Good | 73 / 73 / 73 | 1 / 1 / 1 | no closing recap | 8.1/2 / 16/3 / 16/3 | 0.75 / 0.75 / 0.75 |
 | excellent/B491 | Excellent | Good / Good / Average | 71 / 71 / 71 | 1 / 1 / 2 | no homework | 4.1/3 / 14.1/7 / 14.9/7 | 0.75 / 0.75 / 0.75 |
-| good/B435 | Good | Poor / Poor / Poor | 37 / 37 / 31 | 13 / 13 / 13 | no rapport before content; tutor face in only 39% of camera frames; no homework; no closing recap | 0/0 / 0/0 / 0/0 | 0.75 / 0.75 / 0.75 |
+| good/B435 | Good | Average / Average / Average | 45 / 45 / 39 | 3 / 3 / 3 | tutor face in only 39% of camera frames; no homework; no closing recap | ? / ? / ? | 1.00 / 1.00 / 1.00 |
 | good/B552 | Good | Good / Good / Good | 71 / 78 / 71 | 1 / 1 / 1 | lighting: face luma 83 (< 85) | 5.5/2 / 5.5/2 / 5.5/2 | 0.75 / 0.75 / 0.75 |
 | quality issue/B392 | Poor | Poor / Poor / Poor | 49 / 49 / 49 | 13 / 13 / 13 | no rapport before content; tutor face in only 58% of camera frames; no closing recap; lighting: face luma 78 (< 85) | 0.6/1 / 0.6/1 / 0.6/1 | 0.75 / 0.75 / 0.75 |
 | quality issue/B441 | Poor | Poor / Poor / Poor | 41 / 31 / 31 | 13 / 13 / 13 | no rapport before content; tutor face in only 4% of camera frames; no homework; no closing recap | 4.7/1 / 4.7/1 / 4.7/1 | 0.75 / 0.75 / 0.75 |
