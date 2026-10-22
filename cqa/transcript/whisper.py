@@ -55,7 +55,8 @@ def transcribe(
             "-l", language or s.whisper_language, "-mc", "0", "-oj", "-np",
             "-of", str(out_base), "-f", str(wav),
         ]  # fmt: skip
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        # whisper prints transcribed text to stderr; decode it as UTF-8, not the Windows code page
+        r = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:
             raise RuntimeError(f"whisper-cli failed (rc={r.returncode}): {r.stderr.strip()[-500:]}")
         data = read_whisper_json(out_base.with_suffix(".json"))

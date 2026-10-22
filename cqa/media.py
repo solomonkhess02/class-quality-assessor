@@ -13,7 +13,7 @@ _FRAME_RE = re.compile(r"frame_(\d+)\.jpg$")
 
 
 def _run(cmd: list[str], timeout: float | None = None) -> subprocess.CompletedProcess[str]:
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    r = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace", timeout=timeout)
     if r.returncode != 0:
         raise RuntimeError(f"{Path(cmd[0]).name} failed (rc={r.returncode}): {r.stderr.strip()[-500:]}")
     return r
