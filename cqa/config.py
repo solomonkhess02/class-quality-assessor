@@ -34,6 +34,7 @@ class Settings(BaseModel):
     ffmpeg_bin: str = "ffmpeg"
     ffprobe_bin: str = "ffprobe"
     whisper_cli: str = "whisper-cli"
+    whisper_backend: str = "cli"  # "cli" (whisper-cli subprocess) | "py" (pywhispercpp bindings, no compile)
     whisper_model: Path = Path("models/ggml-base.bin")
     whisper_threads: int = 2
     whisper_language: str = "auto"
@@ -74,14 +75,47 @@ def _resolve(p: Path) -> Path:
     return p if p.is_absolute() else REPO_ROOT / p
 
 
+def on_community_cloud() -> bool:
+    """Streamlit Community Cloud runs apps from /mount/src/<repo>."""
+    return REPO_ROOT.as_posix().startswith("/mount/src/")
+
+
+def cloud_defaults() -> dict[str, str]:
+    """Public-deployment defaults, matching the Docker image: no media kept, no compiled whisper-cli,
+    models downloaded at first start into the home cache."""
+    models = Path.home() / ".cache" / "cqa-models"
+    return {
+        "delete_media_after_run": "true",
+        "cache_max_age_h": "2",
+        "whisper_backend": "py",
+        "whisper_model": str(models / "ggml-base-q5_1.bin"),
+        "face_model": str(models / "face_detection_yunet_2023mar.onnx"),
+    }
+
+
+def _secrets() -> dict[str, str]:
+    """Root-level Streamlit secrets (.streamlit/secrets.toml, or the app's secrets on Community Cloud)."""
+    try:
+        import streamlit as st
+
+        return {k.lower(): str(v) for k, v in st.secrets.to_dict().items() if not isinstance(v, dict)}
+    except Exception:  # no secrets file
+        return {}
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
+    """Precedence: environment (incl. .env) > Streamlit secrets > Community Cloud defaults > field defaults."""
     load_dotenv(REPO_ROOT / ".env")
-    values = {
-        name: os.environ[name.upper()]
-        for name in Settings.model_fields
-        if os.environ.get(name.upper(), "").strip() != ""
-    }
+    values = cloud_defaults() if on_community_cloud() else {}
+    environ = dict(os.environ)  # before st.secrets: Streamlit copies root-level secrets into os.environ
+    secrets = _secrets()
+    for name in Settings.model_fields:
+        env = environ.get(name.upper(), "").strip()
+        if env:
+            values[name] = env
+        elif secrets.get(name, "").strip():
+            values[name] = secrets[name]
     s = Settings(**values)
     for field in ("whisper_model", "data_dir", "cache_dir", "face_model"):
         setattr(s, field, _resolve(getattr(s, field)))

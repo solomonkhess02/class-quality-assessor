@@ -48,6 +48,10 @@ def transcribe(
     threads: int | None = None,
 ) -> tuple[list[Turn], str]:
     s = get_settings()
+    if s.whisper_backend == "py":  # pywhispercpp bindings, no compiled CLI (cqa/transcript/whisper_py.py)
+        from cqa.transcript import whisper_py
+
+        return whisper_py.transcribe(wav, offset_s, language=language, model=model, threads=threads)
     with tempfile.TemporaryDirectory() as tmp:
         out_base = Path(tmp) / "out"
         cmd = [

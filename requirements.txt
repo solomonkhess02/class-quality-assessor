@@ -9,6 +9,7 @@ wordfreq>=3.1  # common-English-word skip in the name scrubber (E11b)
 # media / vision (local only)
 opencv-python-headless>=4.10,<5  # OpenCV 5 removed CascadeClassifier; we use FaceDetectorYN (YuNet)
 numpy>=1.26
+pywhispercpp>=1.5,<1.6; sys_platform == "linux"  # WHISPER_BACKEND=py (Community Cloud); Windows dev uses whisper-cli
 # data + ingest
 pandas>=2.1
 gdown>=5.1

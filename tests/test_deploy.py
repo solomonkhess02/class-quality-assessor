@@ -144,3 +144,111 @@ def test_purge_old_off_by_default(settings):
     os.utime(cdir, (0, 0))
     assert housekeeping.purge_old() == 0
     assert cdir.exists()
+
+
+# --- Streamlit Community Cloud ---
+
+
+@pytest.fixture
+def secrets_file(monkeypatch, tmp_path):
+    """A fake .streamlit/secrets.toml in a temporary working directory, read by a fresh st.secrets."""
+    import streamlit
+    from streamlit.runtime.secrets import Secrets
+
+    (tmp_path / ".streamlit").mkdir()
+    (tmp_path / ".streamlit" / "secrets.toml").write_text(
+        'DEEPSEEK_API_KEY = "fake-from-secrets"\nCACHE_MAX_AGE_H = 3\n[section]\nx = 1\n', encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(streamlit, "secrets", Secrets())
+    monkeypatch.setattr(config, "load_dotenv", lambda *a, **k: None)  # keep the developer's .env out
+    # Empty counts as unset; setenv also makes monkeypatch restore these after Streamlit copies secrets into them
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "")
+    monkeypatch.setenv("CACHE_MAX_AGE_H", "")
+    config.get_settings.cache_clear()
+    yield
+    config.get_settings.cache_clear()
+
+
+def test_key_falls_back_to_streamlit_secrets(secrets_file):
+    s = config.get_settings()
+    assert s.deepseek_api_key.get_secret_value() == "fake-from-secrets"
+    assert s.cache_max_age_h == 3
+
+
+def test_environment_beats_secrets(secrets_file, monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "fake-from-env")
+    config.get_settings.cache_clear()
+    assert config.get_settings().deepseek_api_key.get_secret_value() == "fake-from-env"
+
+
+def test_community_cloud_defaults(monkeypatch):
+    monkeypatch.setattr(config, "on_community_cloud", lambda: True)
+    for name in ("DELETE_MEDIA_AFTER_RUN", "CACHE_MAX_AGE_H", "WHISPER_BACKEND", "WHISPER_MODEL", "FACE_MODEL"):
+        monkeypatch.setenv(name, "")  # empty counts as unset, and stops .env from filling it
+    config.get_settings.cache_clear()
+    try:
+        s = config.get_settings()
+        assert s.delete_media_after_run and s.cache_max_age_h == 2 and s.whisper_backend == "py"
+        assert s.whisper_model.name == "ggml-base-q5_1.bin" and s.whisper_model.is_absolute()
+        monkeypatch.setenv("CACHE_MAX_AGE_H", "5")  # explicit settings still win
+        config.get_settings.cache_clear()
+        assert config.get_settings().cache_max_age_h == 5
+    finally:
+        config.get_settings.cache_clear()
+
+
+def test_not_community_cloud_locally():
+    assert not config.on_community_cloud()
+
+
+def test_purge_old_leaves_other_dirs(settings):
+    s = settings(CACHE_MAX_AGE_H="2")
+    models = s.cache_dir / "models"
+    models.mkdir(parents=True)
+    os.utime(models, (0, 0))
+    assert housekeeping.purge_old() == 0
+    assert models.exists()
+
+
+def test_model_download_checks_sha256(monkeypatch, tmp_path):
+    from cqa import models
+
+    payload = b"synthetic model bytes"
+    monkeypatch.setattr(models.urllib.request, "urlretrieve", lambda url, dest: Path(dest).write_bytes(payload))
+    good = tmp_path / "good.bin"
+    digest = models.hashlib.sha256(payload).hexdigest()
+    monkeypatch.setitem(models.KNOWN, "good.bin", ("https://example.invalid/good.bin", digest))
+    monkeypatch.setitem(models.KNOWN, "bad.bin", ("https://example.invalid/bad.bin", "0" * 64))
+    models.download(good)
+    assert good.read_bytes() == payload
+    with pytest.raises(RuntimeError, match="sha256 mismatch"):
+        models.download(tmp_path / "bad.bin")
+    assert not (tmp_path / "bad.bin").exists()
+    assert not list(tmp_path.glob("*.part"))
+
+
+def test_whisper_py_reads_extracted_wav(tmp_path):
+    import wave
+
+    import numpy as np
+
+    from cqa.transcript import whisper_py
+
+    wav = tmp_path / "a.wav"
+    with wave.open(str(wav), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(np.array([0, 16384, -32768], dtype=np.int16).tobytes())
+    assert whisper_py.read_wav(wav).tolist() == [0.0, 0.5, -1.0]
+
+
+def test_whisper_backend_py_dispatch(settings, monkeypatch, tmp_path):
+    from cqa.transcript import whisper, whisper_py
+
+    settings(WHISPER_BACKEND="py")
+    calls = []
+    monkeypatch.setattr(whisper_py, "transcribe", lambda *a, **k: calls.append((a, k)) or ([], "en"))
+    assert whisper.transcribe(tmp_path / "a.wav", 12.0, language="en", threads=2) == ([], "en")
+    assert calls[0][0][1] == 12.0 and calls[0][1]["threads"] == 2

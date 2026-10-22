@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import threading
 import time
@@ -13,6 +14,7 @@ from cqa.ingest import sha256_file
 # Module-level, so it survives Streamlit reruns and is shared by every session in the server process
 RUN_LOCK = threading.Lock()
 KEEP_IN_CLASS_DIR = "assessment*.json"
+CLASS_DIR = re.compile(r"[0-9a-f]{16}")  # cqa.ingest.cache_dir_for: first 16 hex chars of the sha256
 
 
 def _remove(p: Path) -> None:
@@ -49,8 +51,14 @@ def purge_old(now: float | None = None) -> int:
     cutoff = (now or time.time()) - s.cache_max_age_h * 3600
     removed = 0
     for entry in s.cache_dir.iterdir():
-        # uploads/, downloads/ and llm/ hold many files of different ages; class dirs go as a whole
-        children = list(entry.iterdir()) if entry.name in ("uploads", "downloads", "llm") else [entry]
+        # uploads/, downloads/ and llm/ hold many files of different ages; class dirs go as a whole;
+        # anything else (e.g. models) is left alone
+        if entry.name in ("uploads", "downloads", "llm"):
+            children = list(entry.iterdir())
+        elif entry.is_dir() and CLASS_DIR.fullmatch(entry.name):
+            children = [entry]
+        else:
+            continue
         for p in children:
             if p.stat().st_mtime < cutoff:
                 _remove(p)

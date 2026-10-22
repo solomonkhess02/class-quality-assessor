@@ -11,6 +11,7 @@ from cqa.housekeeping import RUN_LOCK, delete_run_files, purge_old
 from cqa.ingest import download_drive, save_upload
 from cqa.judge.llm import JudgeUnavailable, judge_available
 from cqa.judge.rubric import BY_ID
+from cqa.models import ensure_models, missing_models
 from cqa.pipeline import run
 from cqa.schemas import Assessment
 
@@ -30,6 +31,12 @@ st.caption(
 )
 if not judge_available():
     st.error(UNAVAILABLE)
+if missing_models():  # first start on a fresh host (Community Cloud); local and Docker already have them
+    try:
+        with st.spinner("Downloading the face-detection and speech models (first start only, about 60 MB)"):
+            ensure_models()
+    except Exception as e:
+        st.error(f"Could not download the models: {e}")
 
 
 def get_inputs() -> tuple:
@@ -38,6 +45,7 @@ def get_inputs() -> tuple:
     video = drive_url = None
     if src == "Upload mp4":
         video = st.file_uploader("Class recording", type=["mp4", "mov", "mkv", "webm"])
+        st.caption("For recordings over about 200 MB, a Google Drive link is faster and more reliable than uploading.")
     elif src == "Google Drive link":
         drive_url = st.text_input("Google Drive share link (must be viewable by anyone with the link)")
     vtt = st.file_uploader("Zoom transcript (.vtt, optional but recommended)", type=["vtt"])
