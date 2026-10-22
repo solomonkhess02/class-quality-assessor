@@ -37,11 +37,11 @@ class Settings(BaseModel):
     whisper_backend: str = "cli"  # "cli" (whisper-cli subprocess) | "py" (pywhispercpp bindings, no compile)
     whisper_model: Path = Path("models/ggml-base.bin")
     whisper_threads: int = 2
-    whisper_language: str = "auto"
+    whisper_language: str = "en"  # E24: explicit (class language from the UI); auto misread B472's opening as Sinhala
     # No-VTT path (P2.2): transcribe only these windows (opening, closing, evenly spaced middle samples)
     asr_mode: str = "windows"  # "windows" | "full"
-    asr_opening_min: float = 8.0  # E22: 8 + 6 + 2 x 2 min (18 min of audio), was 12 + 10 + 3 x 3
-    asr_closing_min: float = 6.0
+    asr_opening_min: float = 8.0  # E22, E24: 8 + 10 + 2 x 2 min (22 min of audio), was 12 + 10 + 3 x 3
+    asr_closing_min: float = 10.0  # E24: matches the judge's 10-min closing window (closing_window_min)
     asr_middle_windows: int = 2
     asr_middle_min: float = 2.0
     asr_detect_language_once: bool = False  # language auto: detect on the opening window, reuse for the rest

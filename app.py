@@ -67,6 +67,9 @@ def get_inputs() -> tuple:
         "Transcript (optional but recommended): Zoom .vtt, or .srt, or .txt with 'Name: text' lines",
         type=list(TRANSCRIPT_TYPES),
     )
+    st.selectbox(  # whisper language when no transcript is given (E24: no auto-detection)
+        "Class language", ["en", "ml"], format_func={"en": "English", "ml": "Malayalam"}.get, key="class_language"
+    )
     if not transcript and src != "No recording (transcript only)":
         st.info(
             "No transcript given: the audio will be transcribed locally with whisper.cpp. This is much slower "
@@ -99,7 +102,7 @@ def assess(video: Path | None, vtt: Path | None) -> Assessment | None:
             status.write(f"**{stage}**: {message}")
 
         try:
-            assessment, _ = run(video, vtt, progress=progress)
+            assessment, _ = run(video, vtt, progress=progress, language=st.session_state.get("class_language"))
         except JudgeUnavailable:
             status.update(label="Assessment service unavailable", state="error")
             st.error(UNAVAILABLE)
@@ -233,7 +236,9 @@ def show_key_facts(a: Assessment) -> None:
             {"fact": "Recap at the end", "value": kf.recap_present},
             {
                 "fact": "Warm-up before content (rapport)",
-                "value": "unknown (content start not found)"
+                "value": f"{kf.rapport_before_content} (judged from the transcript; speakers not identified)"
+                if kf.rapport_method == "judge"
+                else "unknown (content start not found)"
                 if kf.warm_up_min is None
                 else f"{kf.warm_up_min:g} min, {kf.warm_up_students} children spoke: {kf.rapport_before_content}",
             },

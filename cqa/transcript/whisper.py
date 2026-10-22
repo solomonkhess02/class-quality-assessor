@@ -98,6 +98,19 @@ def asr_windows(
     return [(round(a, 3), round(b, 3)) for a, b in merged]
 
 
+def cache_name(windows: list[tuple[float, float]] | None, language: str) -> str:
+    """Cache file for a class's whisper transcript, keyed by what changes its content: language, windows, prompt."""
+    s = get_settings()
+    if not windows:
+        span = "full"
+    else:
+        span = f"{s.asr_opening_min:g}-{s.asr_closing_min:g}-{s.asr_middle_windows}x{s.asr_middle_min:g}"
+    extras = ("_once" if s.asr_detect_language_once and language == "auto" else "") + (
+        "_prompt" if s.asr_chess_prompt else ""
+    )
+    return f"whisper_{language}_{span}{extras}.json"
+
+
 def configured_windows(duration_s: float) -> list[tuple[float, float]] | None:
     """Windows from the settings, or None for full transcription (ASR_MODE=full)."""
     s = get_settings()

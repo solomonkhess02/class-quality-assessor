@@ -20,7 +20,7 @@ from cqa.transcript.quality import check_quality
 from cqa.transcript.role_tagging import tag_roles
 from cqa.transcript.roles import assign_roles
 from cqa.transcript.vtt import parse_vtt
-from cqa.transcript.whisper import configured_windows, transcribe_media
+from cqa.transcript.whisper import cache_name, configured_windows, transcribe_media
 
 Progress = Callable[[str, str], None]
 
@@ -29,24 +29,26 @@ def _noop(stage: str, message: str) -> None:
     pass
 
 
-def whisper_transcript(video: Path, cdir: Path) -> Transcript:
-    """whisper.cpp transcript of the configured windows (or the whole file), cached in the class's cache dir."""
+def whisper_transcript(video: Path, cdir: Path, language: str | None = None) -> Transcript:
+    """whisper.cpp transcript of the configured windows (or the whole file) in the given class language (default
+    WHISPER_LANGUAGE), cached in the class's cache dir under a name that includes the language and windows."""
+    language = language or get_settings().whisper_language
     windows = configured_windows(media.probe_duration(video))
-    cached = cdir / ("whisper_windows.json" if windows else "whisper.json")
+    cached = cdir / cache_name(windows, language)
     if cached.exists():
         return Transcript.model_validate_json(cached.read_text(encoding="utf-8"))
-    t = transcribe_media(video, cdir / "audio", windows)
+    t = transcribe_media(video, cdir / "audio", windows, language=language)
     cached.write_text(t.model_dump_json(), encoding="utf-8")
     return t
 
 
-def load_transcript(video: Path | None, vtt: Path | None, cdir: Path) -> Transcript:
+def load_transcript(video: Path | None, vtt: Path | None, cdir: Path, language: str | None = None) -> Transcript:
     """Raw transcript (real names; stays in process memory or the local cache)."""
     if vtt is not None:
         return parse_vtt(vtt.read_text(encoding="utf-8"))
     if video is None:
         raise ValueError("Need a recording or a VTT transcript")
-    return whisper_transcript(video, cdir)
+    return whisper_transcript(video, cdir, language)
 
 
 def run(
@@ -55,9 +57,11 @@ def run(
     progress: Progress = _noop,
     skip_visual: bool = False,
     run_index: int = 0,
+    language: str | None = None,
 ) -> tuple[Assessment, JudgeOutput]:
     """Assess one class. Returns the Assessment and the verified judge output.
-    run_index > 0: a repeated evaluation run (separate judge call, own assessment file)."""
+    run_index > 0: a repeated evaluation run (separate judge call, own assessment file).
+    language: the class language for whisper ("en", "ml"); default WHISPER_LANGUAGE."""
     s = get_settings()
     timings: dict[str, float] = {}
     t0 = time.perf_counter()
@@ -84,7 +88,7 @@ def run(
         progress("transcript", "Parsing the Zoom transcript")
     else:
         progress("transcript", "Transcribing audio with whisper.cpp (slow on CPU)")
-    raw = assign_roles(load_transcript(video, vtt, cdir))
+    raw = assign_roles(load_transcript(video, vtt, cdir, language))
     pre_warnings: list[str] = []
     quality = check_quality(raw)
     if not quality.usable and raw.source == "vtt":
@@ -92,7 +96,7 @@ def run(
         if video is not None:
             progress("transcript", "The Zoom transcript looks unusable; transcribing the audio with whisper.cpp")
             pre_warnings.append(f"The Zoom transcript looks unusable ({why}); the audio was transcribed instead.")
-            raw = assign_roles(whisper_transcript(video, cdir))
+            raw = assign_roles(whisper_transcript(video, cdir, language))
             quality = check_quality(raw)
         else:
             pre_warnings.append(

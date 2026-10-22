@@ -16,11 +16,13 @@ from cqa.config import get_settings
 from cqa.judge import facts as F
 from cqa.judge import prompts
 from cqa.judge.llm import call_json
+from cqa.judge.prompts import speakers_known
 from cqa.judge.rubric import LLM_CRITERIA
 from cqa.schemas import (
     YES_NO_FACTS,
     CriterionResult,
     Evidence,
+    FactEvidence,
     JudgeOutput,
     KeyFacts,
     TextStats,
@@ -127,6 +129,25 @@ def rapport_from_warm_up(minutes: float, students: int) -> str:
     return "unknown"
 
 
+def judged_rapport_fact(
+    state: str, evidence: list[FactEvidence], content_start_s: float | None, transcript: Transcript
+) -> str:
+    """E24, guards fixed before results (homework-style: unknown unless the transcript can support the claim).
+    The judge's rapport fact counts only with a verified quote of the same value (already checked) that lies in
+    the opening, no later than the verified content start. A "no" also needs a verified content start inside the
+    transcribed opening window: "straight into content" must be visible."""
+    if state not in ("yes", "no"):
+        return "unknown"
+    opening_end = transcript.windows[0][1] if transcript.windows else transcript.duration_s
+    limit = min(content_start_s, opening_end) if content_start_s is not None else opening_end
+    quotes = [e for e in evidence if e.fact == "rapport_before_content" and e.value == state]
+    if not any(parse_ts(e.timestamp) <= limit + 1 for e in quotes):
+        return "unknown"
+    if state == "no" and (content_start_s is None or content_start_s > opening_end):
+        return "unknown"
+    return state
+
+
 def verify_key_facts(
     kf: KeyFacts, transcript: Transcript, window_s: float, closing_min: float = 10.0
 ) -> tuple[KeyFacts, int, list[str], dict[str, int]]:
@@ -149,16 +170,24 @@ def verify_key_facts(
         updates["new_joiners"] = "unknown"
 
     starts = [parse_ts(e.timestamp) for e in kept if e.fact == "content_start"]
+    judged_rapport = updates.get("rapport_before_content", kf.rapport_before_content)  # after the quote check
     measured = warm_up(transcript, min(starts)) if starts else None
-    if measured is not None:
+    if not speakers_known(transcript):  # E24: no speakers, no warm-up to measure: the judge's guarded fact
+        rapport = judged_rapport_fact(judged_rapport, kept, min(starts) if starts else None, transcript)
+        updates.update(content_start=format_ts(min(starts)) if starts else "", warm_up_min=None,
+                       warm_up_students=None, rapport_before_content=rapport,
+                       rapport_method="judge" if rapport != "unknown" else "none")  # fmt: skip
+    elif measured is not None:
         minutes, students = measured
         updates.update(content_start=format_ts(min(starts)), warm_up_min=minutes, warm_up_students=students,
-                       rapport_before_content=rapport_from_warm_up(minutes, students))  # fmt: skip
+                       rapport_before_content=rapport_from_warm_up(minutes, students),
+                       rapport_method="warm_up")  # fmt: skip
     elif starts:  # content start verified, but no tutor greeting before it
         updates.update(content_start=format_ts(min(starts)), warm_up_min=None, warm_up_students=None,
-                       rapport_before_content="unknown")  # fmt: skip
+                       rapport_before_content="unknown", rapport_method="none")  # fmt: skip
     else:
-        updates.update(content_start="", warm_up_min=None, warm_up_students=None, rapport_before_content="unknown")
+        updates.update(content_start="", warm_up_min=None, warm_up_students=None, rapport_before_content="unknown",
+                       rapport_method="none")  # fmt: skip
 
     guards = {"homework_no_to_unknown": 0}
     if updates.get("homework_assigned", kf.homework_assigned) == "no":
@@ -175,6 +204,7 @@ def verify_key_facts(
         "warm_up_min",
         "warm_up_students",
         "rapport_before_content",
+        "rapport_method",
     )
     reset = [k for k in updates if k not in measured]
     return kf.model_copy(update=updates), dropped, reset, guards
@@ -301,6 +331,11 @@ def _judge_direct(
         total += len(raw.key_facts.evidence) if raw.key_facts else 0
         dropped += kf_dropped
         meta["fact_guards"] = guards
+        if kf.rapport_method == "judge":
+            warnings.append(
+                "Speakers are not identified, so the warm-up before teaching was not measured: rapport was judged "
+                f"from the transcript (verified quote): {kf.rapport_before_content}."
+            )
         if reset:
             warnings.append(f"Key facts without a verified quote were set to unknown: {', '.join(reset)}")
         if s.facts_drive and verified.transcript_usable:

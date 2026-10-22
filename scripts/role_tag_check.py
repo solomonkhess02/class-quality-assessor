@@ -1,9 +1,9 @@
 """Accuracy of LLM role tagging on whisper transcripts, against the Zoom VTT speakers (P2.2). USES THE API.
 
 Usage: python scripts/role_tag_check.py [class keys ...]
-Needs <class cache>/whisper_windows.json (scripts/bench_asr_windows.py). For each class: anonymise the whisper
-transcript (names scrubbed, as in the pipeline), tag roles with one DeepSeek call, and compare each segment's role
-with the role of the most-overlapping VTT turn. Prints numbers only.
+Needs the whisper cache of the current ASR settings (scripts/bench_asr_windows.py). For each class: anonymise
+the whisper transcript (names scrubbed, as in the pipeline), tag roles with one DeepSeek call, and compare each
+segment's role with the role of the most-overlapping VTT turn. Prints numbers only.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from cqa.transcript.privacy import anonymise  # noqa: E402
 from cqa.transcript.role_tagging import reference_roles, tag_roles  # noqa: E402
 from cqa.transcript.roles import assign_roles  # noqa: E402
 from cqa.transcript.vtt import parse_vtt  # noqa: E402
+from cqa.transcript.whisper import cache_name, configured_windows  # noqa: E402
 
 DEFAULT = ["excellent/B472", "good/B552", "average/B516", "weak/B482"]
 
@@ -33,7 +34,8 @@ def main(keys: list[str]) -> None:
     print("|---|---|---|---|---|---|---|")
     for key in keys:
         item = items[key]
-        cached = cache_dir_for(sha256_file(item.video)) / "whisper_windows.json"
+        windows = configured_windows(media.probe_duration(item.video))
+        cached = cache_dir_for(sha256_file(item.video)) / cache_name(windows, s.whisper_language)
         whisper = Transcript.model_validate_json(cached.read_text(encoding="utf-8"))
         tagged, meta = tag_roles(anonymise(whisper)[0])
         vtt = assign_roles(parse_vtt(item.vtt.read_text(encoding="utf-8")))

@@ -175,6 +175,26 @@ def windows_note(transcript: Transcript) -> str:
     )
 
 
+def speakers_known(transcript: Transcript) -> bool:
+    return any(t.role == "tutor" for t in transcript.turns)
+
+
+# E24, fixed before results: the warm-up thresholds of A3c (DECISIONS D20), asked of the judge when code cannot
+# measure the warm-up because speakers are not identified. Only in the user message, so the VTT path is unchanged.
+RAPPORT_RULE = (
+    "Speakers are not identified in this transcript, so the warm-up cannot be measured. Also report "
+    '"rapport_before_content" in key_facts: "yes" if, before the first line of lesson content, the tutor chats '
+    "personally with the children (their day, school, hobbies; not the lesson) for about 3 minutes or more with "
+    'several children answering; "no" if lesson content starts within about 2 minutes of the first greeting with '
+    'no personal chat; otherwise "unknown". Quote the line that shows it in key_facts.evidence with fact '
+    '"rapport_before_content" and "value" "yes" or "no".\n\n'
+)
+
+
+def rapport_note(transcript: Transcript) -> str:
+    return "" if speakers_known(transcript) or not get_settings().facts_drive else RAPPORT_RULE
+
+
 def user_prompt(
     transcript: Transcript,
     stats: TextStats,
@@ -188,7 +208,8 @@ def user_prompt(
         f"Statistics (json): {json.dumps(stats.model_dump(exclude=CODE_ONLY_STATS))}\n"
         "(tutor_talk_share is a fraction of talk time; student_turns_per_min counts merged student turns.)\n\n"
         f"Video metrics (json, percentages of sampled frames): {visual_text}\n\n"
-        f"{windows_note(transcript)}Transcript:\n{format_transcript(transcript, opening_min, closing_min)}\n\n"
+        f"{windows_note(transcript)}{rapport_note(transcript)}"
+        f"Transcript:\n{format_transcript(transcript, opening_min, closing_min)}\n\n"
         "Assess this class and return the json object."
     )
 

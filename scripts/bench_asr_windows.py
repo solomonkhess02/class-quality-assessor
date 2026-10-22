@@ -3,7 +3,8 @@
 Usage: python scripts/bench_asr_windows.py [class keys ...]
 Default: one class per level. Model base-q5_1 at 2 threads (DECISIONS D11). Windows, language detection and
 prompt from the ASR_* settings. The transcript is cached locally as
-<class cache>/whisper_windows.json; agreement = word-sequence similarity with the Zoom VTT over the same windows
+<class cache>/whisper_<language>_<windows>.json (the pipeline's cache); agreement = word-sequence similarity
+with the Zoom VTT over the same windows
 (both are machine transcripts, so this is agreement, not accuracy).
 """
 
@@ -23,7 +24,7 @@ from cqa.dataset import discover  # noqa: E402
 from cqa.ingest import cache_dir_for, sha256_file  # noqa: E402
 from cqa.schemas import Transcript  # noqa: E402
 from cqa.transcript.vtt import parse_vtt  # noqa: E402
-from cqa.transcript.whisper import configured_windows, transcribe_wavs  # noqa: E402
+from cqa.transcript.whisper import cache_name, configured_windows, transcribe_wavs  # noqa: E402
 
 DEFAULT = ["excellent/B472", "good/B552", "average/B516", "weak/B482"]
 MODEL = REPO_ROOT / "models" / "ggml-base-q5_1.bin"
@@ -59,7 +60,7 @@ def main(keys: list[str]) -> None:
         ref, hyp = words(" ".join(t.text for t in in_win)), words(" ".join(t.text for t in turns))
         agreement = difflib.SequenceMatcher(a=ref, b=hyp, autojunk=False).ratio()
         cached = Transcript(source="whisper", language=language, duration_s=duration, turns=turns, windows=windows)
-        (cdir / "whisper_windows.json").write_text(cached.model_dump_json(), encoding="utf-8")
+        (cdir / cache_name(windows, s.whisper_language)).write_text(cached.model_dump_json(), encoding="utf-8")
         rt = t_whisper / (audio_min * 60)
         print(f"| {key} | {duration / 60:.0f} | {len(windows)} | {audio_min:.0f} | {t_extract:.0f} | {t_whisper:.0f} | "
               f"{rt:.2f} | {language} | {len(hyp)} | {agreement:.0%} |", flush=True)  # fmt: skip
