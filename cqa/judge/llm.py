@@ -36,35 +36,40 @@ def _client() -> OpenAI:
     wait=wait_exponential(min=2, max=30),
     reraise=True,
 )
-def _create(client: OpenAI, messages: list[dict]):
+def _create(client: OpenAI, messages: list[dict], temperature: float):
     s = get_settings()
     return client.chat.completions.create(
         model=s.judge_model,
         messages=messages,
         response_format={"type": "json_object"},
-        temperature=s.judge_temperature,
+        temperature=temperature,
         max_tokens=s.judge_max_tokens,
         extra_body={"thinking": {"type": s.judge_thinking}},
     )
 
 
-def request_key(messages: list[dict]) -> str:
+def request_key(messages: list[dict], run_index: int = 0, temperature: float | None = None) -> str:
     s = get_settings()
-    payload = {
+    payload: dict = {
         "model": s.judge_model,
-        "temperature": s.judge_temperature,
+        "temperature": s.judge_temperature if temperature is None else temperature,
         "thinking": s.judge_thinking,
         "messages": messages,
     }
+    if run_index:  # repeated evaluation runs are separate calls (docs/EVALUATION.md); run 0 keeps old keys
+        payload["run"] = run_index
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-def call_json(messages: list[dict], schema: type[T]) -> tuple[T, dict]:
-    """Return (validated output, meta). Cached on disk by hash of (model, settings, messages)."""
+def call_json(
+    messages: list[dict], schema: type[T], run_index: int = 0, temperature: float | None = None
+) -> tuple[T, dict]:
+    """Return (validated output, meta). Cached on disk by hash of (model, settings, messages, run index)."""
     s = get_settings()
+    temperature = s.judge_temperature if temperature is None else temperature
     cache_dir = s.cache_dir / "llm"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_file = cache_dir / f"{request_key(messages)}.json"
+    cache_file = cache_dir / f"{request_key(messages, run_index, temperature)}.json"
     if cache_file.exists():
         cached = json.loads(cache_file.read_text(encoding="utf-8"))
         return schema.model_validate_json(cached["content"]), {**cached["meta"], "cached": True}
@@ -75,7 +80,7 @@ def call_json(messages: list[dict], schema: type[T]) -> tuple[T, dict]:
     usage = {"prompt_tokens": 0, "completion_tokens": 0}
     last_error = ""
     for attempt in range(1, MAX_REASKS + 2):
-        resp = _create(client, convo)
+        resp = _create(client, convo, temperature)
         if resp.usage:
             usage["prompt_tokens"] += resp.usage.prompt_tokens
             usage["completion_tokens"] += resp.usage.completion_tokens

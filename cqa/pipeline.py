@@ -45,8 +45,10 @@ def run(
     vtt: Path | None,
     progress: Progress = _noop,
     skip_visual: bool = False,
+    run_index: int = 0,
 ) -> tuple[Assessment, JudgeOutput]:
-    """Assess one class. Returns the Assessment and the verified judge output."""
+    """Assess one class. Returns the Assessment and the verified judge output.
+    run_index > 0: a repeated evaluation run (separate judge call, own assessment file)."""
     s = get_settings()
     timings: dict[str, float] = {}
     t0 = time.perf_counter()
@@ -84,7 +86,7 @@ def run(
     lap("features")
 
     progress("judge", "Asking the LLM judge and verifying its quotes")
-    judged, warnings, meta = judge(transcript, stats, visual)
+    judged, warnings, meta = judge(transcript, stats, visual, run_index=run_index)
     lap("judge")
 
     progress("score", "Scoring")
@@ -92,6 +94,8 @@ def run(
         warnings.append("No VTT given: transcribed with whisper; speakers are not identified (Phase 1).")
     assessment = assess(judged, visual, stats, transcript.source, warnings, meta)
     assessment.meta["timings_s"] = timings
-    (cdir / "assessment.json").write_text(assessment.model_dump_json(indent=1), encoding="utf-8")
+    (cdir / (f"assessment_r{run_index}.json" if run_index else "assessment.json")).write_text(
+        assessment.model_dump_json(indent=1), encoding="utf-8"
+    )
     lap("score")
     return assessment, judged

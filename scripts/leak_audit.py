@@ -45,10 +45,12 @@ def joined(messages: list[dict]) -> str:
     return "\n".join(m["content"] for m in messages)
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--dump", action="store_true")
-    args = ap.parse_args()
+HEADER = ["class", "turns", "(a) caps", "(a) distinct", "(b) >= 85", "(b) 70-84", "(b) labelled names left",
+          "(b) accepted word-like names", "(b) unlabelled 70-84", "(c) over-scrub"]  # fmt: skip
+
+
+def audit() -> tuple[list[list[str]], str, dict]:
+    """Returns (table rows, gate verdict line, matched tokens per class for the local dump)."""
     s = get_settings()
     labels_path = s.cache_dir / "leak_review_labels.json"
     labels = json.loads(labels_path.read_text(encoding="utf-8"))["labels"] if labels_path.exists() else None
@@ -88,26 +90,31 @@ def main() -> None:
              str(unlabelled), f"{over:.2%}"]
         )  # fmt: skip
         dump[item.key] = lc.hits
+    if labels is None:
+        return rows, f"Gate D16: not checked ({labels_path.name} missing); hits >= 85: {high_total}", dump
+    fail = high_total or names_left_total or over_scrub_failures
+    verdict = "FAIL" if fail else "PENDING REVIEW" if unlabelled_total else "PASS"
+    line = (
+        f"Gate D16: {verdict} (hits >= 85: {high_total}, labelled names left: {names_left_total}, "
+        f"classes over {OVER_SCRUB_MAX:.1%} over-scrub: {over_scrub_failures}, "
+        f"unlabelled 70-84 to review: {unlabelled_total})"
+    )
+    return rows, line, dump
 
-    header = ["class", "turns", "(a) caps", "(a) distinct", "(b) >= 85", "(b) 70-84", "(b) labelled names left",
-              "(b) accepted word-like names", "(b) unlabelled 70-84", "(c) over-scrub"]  # fmt: skip
-    print("| " + " | ".join(header) + " |")
-    print("|" + "---|" * len(header))
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dump", action="store_true")
+    args = ap.parse_args()
+    rows, verdict, dump = audit()
+    print("| " + " | ".join(HEADER) + " |")
+    print("|" + "---|" * len(HEADER))
     for r in rows:
         print("| " + " | ".join(r) + " |")
     print("(b) columns count distinct tokens.")
-    if labels is None:
-        print(f"\nGate D16: not checked ({labels_path.name} missing); hits >= 85: {high_total}")
-    else:
-        fail = high_total or names_left_total or over_scrub_failures
-        verdict = "FAIL" if fail else "PENDING REVIEW" if unlabelled_total else "PASS"
-        print(
-            f"\nGate D16: {verdict} (hits >= 85: {high_total}, labelled names left: {names_left_total}, "
-            f"classes over {OVER_SCRUB_MAX:.1%} over-scrub: {over_scrub_failures}, "
-            f"unlabelled 70-84 to review: {unlabelled_total})"
-        )
+    print(f"\n{verdict}")
     if args.dump:
-        out = s.cache_dir / "leak_audit_hits.json"
+        out = get_settings().cache_dir / "leak_audit_hits.json"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(dump, indent=1), encoding="utf-8")
         print(f"\nWrote {out} (real names: local review only)")

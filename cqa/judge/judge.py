@@ -112,10 +112,10 @@ def generic_observations(observations: list[str]) -> list[str]:
 
 
 def _call_with_generic_retry(
-    messages: list[dict], schema: type[M], observations_of
+    messages: list[dict], schema: type[M], observations_of, run_index: int = 0
 ) -> tuple[M, dict, list[str]]:
     """Call the judge; if too many observations are generic, re-ask once with them listed."""
-    out, meta = call_json(messages, schema)
+    out, meta = call_json(messages, schema, run_index)
     obs = observations_of(out)
     generic = generic_observations(obs)
     meta["generic_retry"] = False
@@ -130,7 +130,7 @@ def _call_with_generic_retry(
                 f"speaker labels and timestamps from the transcript, and return the full json object again:\n{listed}",
             },
         ]
-        out2, meta2 = call_json(retry, schema)
+        out2, meta2 = call_json(retry, schema, run_index)
         obs2 = observations_of(out2)
         generic = generic_observations(obs2)
         out, meta = out2, {**meta2, "generic_retry": True}
@@ -141,12 +141,12 @@ def _call_with_generic_retry(
 
 
 def _judge_direct(
-    transcript: Transcript, stats: TextStats, visual: VisualReport | None
+    transcript: Transcript, stats: TextStats, visual: VisualReport | None, run_index: int = 0
 ) -> tuple[JudgeOutput, list[str], dict]:
     s = get_settings()
     messages = prompts.build_messages(transcript, stats, visual, s.opening_window_min, s.closing_window_min)
     raw, meta, _ = _call_with_generic_retry(
-        messages, JudgeOutput, lambda o: [x for c in o.criteria for x in c.observations]
+        messages, JudgeOutput, lambda o: [x for c in o.criteria for x in c.observations], run_index
     )
     warnings: list[str] = []
     expected = {c.id for c in LLM_CRITERIA}
@@ -175,14 +175,14 @@ def _judge_direct(
 
 
 def _judge_facts(
-    transcript: Transcript, stats: TextStats, visual: VisualReport | None
+    transcript: Transcript, stats: TextStats, visual: VisualReport | None, run_index: int = 0
 ) -> tuple[JudgeOutput, list[str], dict]:
     s = get_settings()
     user = prompts.user_prompt(transcript, stats, visual, s.opening_window_min, s.closing_window_min)
     user = user.replace("Assess this class", "Extract the facts for this class")
     messages = [{"role": "system", "content": F.facts_system_prompt()}, {"role": "user", "content": user}]
     out, meta, _ = _call_with_generic_retry(
-        messages, F.FactsOutput, lambda o: [x for c in o.criteria for x in c.observations]
+        messages, F.FactsOutput, lambda o: [x for c in o.criteria for x in c.observations], run_index
     )
     verified, dropped = verify_list(out.evidence, transcript, s.evidence_window_s)
     facts = F.apply_verified_evidence(out, verified)
@@ -204,11 +204,18 @@ def _judge_facts(
 
 
 def judge(
-    transcript: Transcript, stats: TextStats, visual: VisualReport | None, design: str | None = None
+    transcript: Transcript,
+    stats: TextStats,
+    visual: VisualReport | None,
+    design: str | None = None,
+    run_index: int = 0,
 ) -> tuple[JudgeOutput, list[str], dict]:
-    """Call the judge and verify evidence. Returns (verified output, warnings, call meta)."""
+    """Call the judge and verify evidence. Returns (verified output, warnings, call meta).
+    run_index > 0 makes a separate (uncached) call for repeated evaluation runs."""
     design = design or get_settings().judge_design
-    judged, warnings, meta = (_judge_facts if design == "facts" else _judge_direct)(transcript, stats, visual)
+    judged, warnings, meta = (_judge_facts if design == "facts" else _judge_direct)(
+        transcript, stats, visual, run_index
+    )
     if meta["evidence_dropped"]:
         warnings.append(
             f"Dropped {meta['evidence_dropped']} of {meta['evidence_total']} evidence quotes "
